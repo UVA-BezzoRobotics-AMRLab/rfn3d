@@ -17,7 +17,10 @@ public:
     OctomapFromPointCloudNode() : nh("~")
     {
         // Parameters
+        nh.param<double>("/octomap_res", octomapRes, .1);
+
         nh.param<std::string>("/frame_id", frameID, "uav1/local_origin");
+
         nh.param<std::string>("/topic_octomap", octomapTopic, "/local_octomap");
         nh.param<std::string>("/topic_octomap_viz", visualizationTopic, "/octomap_viz");
         nh.param<std::string>("/topic_odom", odomTopic, "/uav1/estimation_manager/odom_main");
@@ -102,7 +105,7 @@ public:
     void publishOctomap()
     {
         // Create an octomap instance and fill it with data (modify as needed)
-        octomap::OcTree octree(0.1); // Set your desired resolution
+        octomap::OcTree octree(octomapRes); // Set your desired resolution
 
         // add data to octree
         for (pcl::PointCloud<pcl::PointXYZ>::iterator it = pointcloud.begin(); it != pointcloud.end(); ++it)
@@ -115,7 +118,7 @@ public:
         octomap_msgs::binaryMapToMsg(octree, octomapMsg);
 
         // Stamp the message with the current time
-        octomapMsg.header.frame_id = "/uav1/local_origin";
+        octomapMsg.header.frame_id = frameID;
         octomapMsg.header.stamp = ros::Time::now();
 
         // Publish the octomap message
@@ -139,6 +142,8 @@ private:
 
     ros::Publisher octomapPub;
     ros::Publisher visualizationPub;
+
+    double octomapRes;
 
     std::string frameID;
 

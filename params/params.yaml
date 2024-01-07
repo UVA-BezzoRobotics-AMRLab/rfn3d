@@ -18,6 +18,10 @@ max_acc: 3.0
 max_jerk: 4.0
 max_w: 3.0
 
+# local octomap parameters
+# resolution of the octomap
+octomap_res: 0.3
+
 # services
 # service to send the trajectory to the controller
 service_mrs_traj: "/uav1/control_manager/trajectory_reference"
