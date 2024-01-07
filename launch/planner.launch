@@ -1,0 +1,11 @@
+<launch>
+    <!-- load parameters from config file -->
+    <rosparam command="load" file="$(find rfn3d)/params/params.yaml"/>
+
+    <!-- planner node -->
+    <node name="planner" pkg="rfn3d" type="planner" output="screen"/>
+
+    <!-- octomap  -->
+    <node name="local_octomap" pkg="rfn3d" type="local_octomap"/>
+
+</launch>

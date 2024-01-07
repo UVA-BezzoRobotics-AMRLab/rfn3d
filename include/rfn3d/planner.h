@@ -12,6 +12,14 @@
 
 #include <octomap_msgs/Octomap.h>
 
+// make enumerated type for drone state
+enum DroneState
+{
+    IDLE,
+    EXECUTING,
+    TURNING
+};
+
 class Planner
 {
 public:
@@ -20,7 +28,6 @@ public:
 
     ~Planner();
 
-    
     void plan_loop(const ros::TimerEvent &event);
     void trail_loop(const ros::TimerEvent &event);
 
@@ -38,14 +45,16 @@ public:
     bool plan(bool is_failsafe = false);
     // void visualize_trajectory();
 
+    ros::ServiceClient _mrs_traj_client;
 
+    ros::Subscriber _map_sub;
     ros::Subscriber _goal_sub;
     ros::Subscriber _odom_sub;
-    ros::Subscriber _map_sub;
 
     ros::Publisher _ref_pub;
     ros::Publisher _traj_pub;
     ros::Publisher _trail_pub;
+    ros::Publisher _mrs_traj_pub;
     ros::Publisher _traj_viz_pub;
 
 private:
@@ -69,6 +78,20 @@ private:
 
     std::string _frame_id;
 
+    // subscribed topic strings
+    std::string _topic_goal;
+    std::string _topic_odom;
+    std::string _topic_octomap;
+
+    // published topic strings
+    std::string _topic_traj;
+    std::string _topic_traj_viz;
+    std::string _topic_trail_viz;
+    std::string _topic_traj_ref_viz;
+
+    // service strings
+    std::string _service_mrs_traj;
+
     nav_msgs::Path _trail;
 
     double _dt;
@@ -77,10 +100,18 @@ private:
     double _curr_horizon;
     double _max_dist_horizon;
 
+    double _max_w;
+    double _max_vel;
+    double _max_acc;
+    double _max_jerk;
+
     int _count;
+    int _traj_segments;
     int _failsafe_count;
 
     bool _map_init;
     bool _odom_init;
     bool _is_goal_set;
+
+    DroneState _drone_state;
 };

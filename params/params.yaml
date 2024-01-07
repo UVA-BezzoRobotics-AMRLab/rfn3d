@@ -1,0 +1,47 @@
+# planning parameters
+
+# frame where all planning and visualizations are performed
+frame_id: "uav1/local_origin"
+# period at which the planner is called
+dt: 0.5
+# sample time for the trajectory
+traj_dt: 0.05
+# seconds ahead of the current time to grab initial conditions
+lookahead: 1.0
+# maximum distance horizon to consider for planning this will
+# be dynamically adjusted at runtime based on solver-feasibility
+max_dist_horizon: 10.0
+
+# drone parameters
+max_vel: 3.0
+max_acc: 3.0
+max_jerk: 4.0
+max_w: 3.0
+
+# services
+# service to send the trajectory to the controller
+service_mrs_traj: "/uav1/control_manager/trajectory_reference"
+
+# subscribed topics
+# pointcloud topic
+topic_pointcloud: "/uav1/point_cloud_manager/merged_pointcloud"
+# octomap topic
+topic_octomap: "/local_octomap"
+# octomap viz topic
+topic_octomap_viz: "/octomap_viz"
+# goal topic
+topic_goal: "/clicked_point"
+# odom topic
+topic_odom: "/uav1/estimation_manager/odom_main"
+
+# published topics
+# topic to visualize the rrt
+topic_rrt_viz: "/rrt_viz"
+# topic to visualize trajectory
+topic_traj_viz: "/traj_viz"
+# topic to visualize the robot's trail
+topic_trail_viz: "/trail_viz"
+# topic to publish current trajectory reference for visualization
+topic_traj_ref_viz: "/traj_ref_viz"
+# topic to publish the trajectory (used for rotorS)
+topic_traj: "/firefly/command/trajectory"

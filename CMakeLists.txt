@@ -31,7 +31,8 @@ find_package(catkin REQUIRED COMPONENTS
   trajectory_msgs
   mav_trajectory_generation
   mav_trajectory_generation_ros
-  voxblox_ros
+  mrs_msgs
+  # voxblox_ros
 )
 
 
@@ -166,12 +167,21 @@ target_link_libraries(planner
   Eigen3::Eigen
 )
 
-add_executable(voxblox_rrt 
-  src/voxblox_rrt.cpp
+# add_executable(voxblox_rrt 
+#   src/voxblox_rrt.cpp
+# )
+# target_link_libraries(voxblox_rrt
+#   ${catkin_LIBRARIES} 
+#   ${OMPL_LIBRARIES}
+#   ${PCL_LIBRARIES}
+#   Eigen3::Eigen
+# )
+
+add_executable(local_octomap
+  src/local_octomap.cpp
 )
-target_link_libraries(voxblox_rrt
-  ${catkin_LIBRARIES} 
-  ${OMPL_LIBRARIES}
+target_link_libraries(local_octomap
+  ${catkin_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
   ${PCL_LIBRARIES}
-  Eigen3::Eigen
 )

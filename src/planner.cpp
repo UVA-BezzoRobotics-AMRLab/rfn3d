@@ -1,7 +1,7 @@
 #include <rfn3d/utils.h>
 #include <rfn3d/planner.h>
 #include <gcopter/sfc_gen.hpp>
-
+#include <mrs_msgs/TrajectoryReferenceSrv.h>
 
 Planner::Planner()
 {
@@ -10,16 +10,38 @@ Planner::Planner()
 Planner::Planner(ros::NodeHandle &nh)
 {
 
-    _frame_id = "world";
+    // subscribed topic params
+    nh.param<std::string>("topic_goal", _topic_goal, "/clicked_point");
+    nh.param<std::string>("topic_octomap", _topic_octomap, "/local_octomap");
+    nh.param<std::string>("topic_odom", _topic_odom, "/uav1/estimation_manager/odom_main");
 
-    _dt = .5;
-    _traj_dt = .05;
-    _lookahead = 1.;
-    _curr_horizon = 10.;
-    _max_dist_horizon = 10.;
+    // published topic params
+    nh.param<std::string>("topic_traj_viz", _topic_traj_viz, "/traj_viz");
+    nh.param<std::string>("topic_trail_viz", _topic_trail_viz, "/trail_viz");
+    nh.param<std::string>("topic_traj", _topic_traj, "/firefly/command/trajectory");
+    nh.param<std::string>("topic_traj_ref_viz", _topic_traj_ref_viz, "/traj_ref_viz");
+
+    // service params
+    nh.param<std::string>("service_mrs_traj", _service_mrs_traj, "/uav1/control_manager/trajectory_reference");
+
+    // planning params
+    nh.param<double>("dt", _dt, 0.5);
+    nh.param<double>("traj_dt", _traj_dt, 0.05);
+    nh.param<double>("lookahead", _lookahead, 1.0);
+    nh.param<int>("failsafe_count", _failsafe_count, 4);
+    nh.param<int>("traj_segments", _traj_segments, 6);
+    nh.param<double>("max_dist_horizon", _max_dist_horizon, 10.0);
+    nh.param<std::string>("frame_id", _frame_id, "uav1/local_origin");
+
+    _curr_horizon = _max_dist_horizon;
+
+    // drone params
+    nh.param<double>("max_w", _max_w, 3.0);
+    nh.param<double>("max_vel", _max_vel, 3.0);
+    nh.param<double>("max_acc", _max_acc, 3.0);
+    nh.param<double>("max_jerk", _max_jerk, 4.0);
 
     _count = 0;
-    _failsafe_count = 4;
 
     _map_init = false;
     _odom_init = false;
@@ -33,27 +55,34 @@ Planner::Planner(ros::NodeHandle &nh)
     _plan_timer = nh.createTimer(ros::Duration(_dt), &Planner::plan_loop, this);
     _trail_timer = nh.createTimer(ros::Duration(.1), &Planner::trail_loop, this);
 
-    _map_sub = nh.subscribe("/octomap_binary", 1, &Planner::map_cb, this);
-    _goal_sub = nh.subscribe("/clicked_point", 1, &Planner::goal_cb, this);
-    _odom_sub = nh.subscribe("/firefly/ground_truth/odometry", 1, &Planner::odom_cb, this);
+    // Subscribers
+    _goal_sub = nh.subscribe(_topic_goal, 1, &Planner::goal_cb, this);
+    _odom_sub = nh.subscribe(_topic_odom, 1, &Planner::odom_cb, this);
+    _map_sub = nh.subscribe(_topic_octomap, 1, &Planner::map_cb, this);
 
-    _trail_pub = nh.advertise<nav_msgs::Path>("/trail_viz", 1);
-    _ref_pub = nh.advertise<geometry_msgs::PointStamped>("/traj_ref", 1);
-    _traj_viz_pub = nh.advertise<visualization_msgs::MarkerArray>("/traj_viz", 1);
-    _traj_pub = nh.advertise<trajectory_msgs::MultiDOFJointTrajectory>("/firefly/command/trajectory", 1);
+    // Publishers
+    _trail_pub = nh.advertise<nav_msgs::Path>(_topic_trail_viz, 1);
+    _ref_pub = nh.advertise<geometry_msgs::PointStamped>(_topic_traj_ref_viz, 1);
+    _traj_viz_pub = nh.advertise<visualization_msgs::MarkerArray>(_topic_traj_viz, 1);
+    _traj_pub = nh.advertise<trajectory_msgs::MultiDOFJointTrajectory>(_topic_traj, 1);
 
-    double limits[3] = {3.0, 5.0, 5.};
+    // Services
+    _mrs_traj_client = nh.serviceClient<mrs_msgs::TrajectoryReferenceSrv>(_service_mrs_traj);
 
-    _traj_solver.setN(6);
+    double limits[3] = {_max_vel, _max_acc, _max_jerk};
+
+    _traj_solver.setN(_traj_segments);
     _traj_solver.createVars();
-    _traj_solver.setDC(.05);
+    _traj_solver.setDC(_traj_dt);
     _traj_solver.setBounds(limits);
     _traj_solver.setForceFinalConstraint(true);
     _traj_solver.setFactorInitialAndFinalAndIncrement(1, 10, 1.0);
     _traj_solver.setThreads(0);
-    _traj_solver.setWMax(3.);
+    _traj_solver.setWMax(_max_w);
     _traj_solver.setVerbose(0);
     _traj_solver.setUseMinvo(false);
+
+    _drone_state = IDLE;
 }
 
 Planner::~Planner()
@@ -99,7 +128,7 @@ void Planner::map_cb(const octomap_msgs::Octomap::ConstPtr &msg)
 
 void Planner::goal_cb(const geometry_msgs::PointStamped::ConstPtr &msg)
 {
-    _goal = Eigen::Vector3d(msg->point.x, msg->point.y, msg->point.z+2.0);
+    _goal = Eigen::Vector3d(msg->point.x, msg->point.y, msg->point.z);
     _is_goal_set = true;
 }
 
@@ -164,14 +193,6 @@ void Planner::plan_loop(const ros::TimerEvent &event)
             _curr_horizon = _max_dist_horizon;
     }
 
-    // if (count >= _failsafe_count){
-    //     if (plan(true)){
-    //         count = 0;
-    //         _curr_horizon /= .9;
-    //     } else
-    //         _curr_horizon *= .9;
-
-    // }
 }
 
 bool Planner::plan(bool is_failsafe)
@@ -346,16 +367,46 @@ bool Planner::plan(bool is_failsafe)
         a_traj.header.stamp = ros::Time::now();
 
         _sent_traj = a_traj;
-        // _start = ros::Time::now();
     }
     else
     {
         _sent_traj = utils::convert_traj_to_msg(_traj_solver.X_temp_, _traj_dt, _frame_id, _jerks);
-        // _start = ros::Time::now();
     }
+
+    _drone_state = EXECUTING;
     _start = ros::Time::now();
 
     _traj_pub.publish(_sent_traj);
+
+    mrs_msgs::TrajectoryReferenceSrv srv_trajectory_reference = utils::convert_traj_to_mrs_srv(_sent_traj, _frame_id);
+    bool srv_status = _mrs_traj_client.call(srv_trajectory_reference);
+
+    if (!srv_status)
+    {
+        ROS_ERROR("Failed to call mrs_traj_client");
+        return false;
+    }else if (!srv_trajectory_reference.response.success)
+        ROS_ERROR("Service call for trajectory reference failed %s", srv_trajectory_reference.response.message.c_str());
+
+    // find maximum velocity and average velocity
+    double avg_vel = 0;
+    double max_vel = 0;
+    for (int i = 0; i < _sent_traj.points.size(); ++i)
+    {
+        double vel = sqrt(pow(_sent_traj.points[i].velocities[0].linear.x, 2) +
+                          pow(_sent_traj.points[i].velocities[0].linear.y, 2) +
+                          pow(_sent_traj.points[i].velocities[0].linear.z, 2));
+
+        if (vel > max_vel)
+            max_vel = vel;
+
+        avg_vel += vel;
+    }
+
+    avg_vel /= _sent_traj.points.size();
+
+    ROS_INFO("max vel: %f", max_vel);
+    ROS_INFO("avg vel: %f", avg_vel);
 
     utils::visualize_traj(_sent_traj, _traj_viz_pub, _frame_id);
 

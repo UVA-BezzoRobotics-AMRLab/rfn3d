@@ -9,7 +9,9 @@
 RRTPlanner::RRTPlanner(ros::NodeHandle &nh)
 {
 	this->nh = nh;
-	marker_arr_pub = this->nh.advertise<visualization_msgs::MarkerArray>("visualization_marker_array", 0);
+
+	nh.param<std::string>("topic_rrt_viz", topic_rrt_viz, "rviz_vizualization");
+	marker_arr_pub = this->nh.advertise<visualization_msgs::MarkerArray>(topic_rrt_viz, 0);
 	// traj_pub = nh.advertise<trajectory_msgs::MultiDOFJointTrajectory>(
 	//          mav_msgs::default_topics::COMMAND_TRAJECTORY, 10);
 
@@ -128,7 +130,7 @@ ob::PlannerStatus RRTPlanner::solve(std::vector<Eigen::Vector3d, Eigen::aligned_
 	}
 
 	visualization_msgs::Marker delete_msg;
-	delete_msg.header.frame_id = "world";
+	delete_msg.header.frame_id = "uav1/local_origin";
 	delete_msg.header.stamp = ros::Time();
 	delete_msg.ns = "planned_path";
 	delete_msg.action = visualization_msgs::Marker::DELETEALL;
@@ -137,7 +139,7 @@ ob::PlannerStatus RRTPlanner::solve(std::vector<Eigen::Vector3d, Eigen::aligned_
 	marker_arr.markers.push_back(delete_msg);
 
 	visualization_msgs::Marker linestrip;
-	linestrip.header.frame_id = "world";
+	linestrip.header.frame_id = "uav1/local_origin";
 	linestrip.header.stamp = ros::Time();
 	linestrip.ns = "traj";
 	linestrip.id = 420;
@@ -156,7 +158,7 @@ ob::PlannerStatus RRTPlanner::solve(std::vector<Eigen::Vector3d, Eigen::aligned_
 		const ob::SO3StateSpace::StateType *rot = se3state->as<ob::SO3StateSpace::StateType>(1);
 
 		visualization_msgs::Marker msg;
-		msg.header.frame_id = "world";
+		msg.header.frame_id = "uav1/local_origin";
 		msg.header.stamp = ros::Time();
 		msg.ns = "planned_path";
 		msg.id = path_idx;
@@ -288,7 +290,7 @@ void RRTPlanner::displayRRT(std::vector<Eigen::Vector4d, Eigen::aligned_allocato
 {
 
 	visualization_msgs::Marker delete_msg;
-	delete_msg.header.frame_id = "world";
+	delete_msg.header.frame_id = "uav1/local_origin";
 	delete_msg.header.stamp = ros::Time();
 	delete_msg.ns = "planned_path";
 	delete_msg.action = visualization_msgs::Marker::DELETEALL;
@@ -297,7 +299,7 @@ void RRTPlanner::displayRRT(std::vector<Eigen::Vector4d, Eigen::aligned_allocato
 	marker_arr.markers.push_back(delete_msg);
 
 	visualization_msgs::Marker linestrip;
-	linestrip.header.frame_id = "world";
+	linestrip.header.frame_id = "uav1/local_origin";
 	linestrip.header.stamp = ros::Time();
 	linestrip.ns = "traj";
 	linestrip.id = 420;
@@ -314,7 +316,7 @@ void RRTPlanner::displayRRT(std::vector<Eigen::Vector4d, Eigen::aligned_allocato
 		Eigen::Vector4d pt = wpts[i];
 
 		visualization_msgs::Marker msg;
-		msg.header.frame_id = "world";
+		msg.header.frame_id = "uav1/local_origin";
 		msg.header.stamp = ros::Time();
 		msg.ns = "planned_path";
 		msg.id = i;

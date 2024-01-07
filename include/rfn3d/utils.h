@@ -10,6 +10,8 @@
 #include <rfn3d/tinycolormap.hpp>
 #include <faster/faster_types.hpp>
 
+#include <mrs_msgs/TrajectoryReferenceSrv.h>
+
 namespace utils
 {
 
@@ -26,7 +28,7 @@ namespace utils
         double remainingDistance = d;
         Eigen::Vector3d resultPoint;
         resultPath.clear();
-        resultPath.push_back(path[0]); // Start point of the new path
+        resultPath.push_back(path[0]); // Start po/uav1/point_cloud_manager/merged_pointcloudint of the new path
 
         for (size_t i = 1; i < path.size(); ++i)
         {
@@ -66,7 +68,7 @@ namespace utils
             const trajectory_msgs::MultiDOFJointTrajectoryPoint &endPoint = trajectory.points[i + 1];
 
             visualization_msgs::Marker marker;
-            marker.header.frame_id = "world";
+            marker.header.frame_id = frame_str;
             marker.header.stamp = ros::Time::now();
             marker.ns = "joint_trajectory";
             marker.id = i;
@@ -172,5 +174,43 @@ namespace utils
 
         return traj_msg;
     }
+
+    mrs_msgs::TrajectoryReferenceSrv convert_traj_to_mrs_srv(const trajectory_msgs::MultiDOFJointTrajectory &trajectory,
+                                                          const std::string &frame_str)
+    {
+        static int id = 0;
+        mrs_msgs::TrajectoryReferenceSrv traj_srv;
+        mrs_msgs::TrajectoryReference traj_msg;
+        traj_msg.header.frame_id = frame_str;
+        traj_msg.header.stamp = ros::Time::now();
+
+        traj_msg.use_heading = false;
+        traj_msg.fly_now = true;
+        traj_msg.input_id = id++;
+
+        if (trajectory.points.size() < 2){
+            ROS_WARN("Trajectory has less than 2 points, cannot convert to mrs_msgs::TrajectoryReference");
+            traj_msg.fly_now = false;
+            return traj_srv;
+        }else
+            traj_msg.dt = trajectory.points[1].time_from_start.toSec() - trajectory.points[0].time_from_start.toSec();
+
+        for (int i = 0; i < trajectory.points.size(); ++i)
+        {
+            mrs_msgs::Reference p;
+            p.position.x = trajectory.points[i].transforms[0].translation.x;
+            p.position.y = trajectory.points[i].transforms[0].translation.y;
+            p.position.z = trajectory.points[i].transforms[0].translation.z;
+
+            p.heading = 0.0;
+
+            traj_msg.points.push_back(p);
+        }
+
+        traj_srv.request.trajectory = traj_msg;
+
+        return traj_srv;
+    }
+    
 
 } // end namespace utils
