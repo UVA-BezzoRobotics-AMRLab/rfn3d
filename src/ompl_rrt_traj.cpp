@@ -10,6 +10,23 @@ RRTPlanner::RRTPlanner(ros::NodeHandle &nh)
 {
 	this->nh = nh;
 
+	nh.param<double>("uav_radius", uav_radius, .4);
+	nh.param<double>("octomap_res", octree_resolution, .2);
+	
+	nh.param<double>("bounding_box/x_min", x_min, -100.);
+	nh.param<double>("bounding_box/x_max", x_max, 100.);
+	nh.param<double>("bounding_box/y_min", y_min, -100.);
+	nh.param<double>("bounding_box/y_max", y_max, 100.);
+	nh.param<double>("bounding_box/z_min", z_min, 0.);
+	nh.param<double>("bounding_box/z_max", z_max, 5.);
+
+	ROS_ERROR("x_min: %f", x_min);
+	ROS_ERROR("x_max: %f", x_max);
+	ROS_ERROR("y_min: %f", y_min);
+	ROS_ERROR("y_max: %f", y_max);
+	ROS_ERROR("z_min: %f", z_min);
+	ROS_ERROR("z_max: %f", z_max);
+
 	nh.param<std::string>("frame_id", frame_id, "world");
 	nh.param<std::string>("topic_rrt_viz", topic_rrt_viz, "rviz_vizualization");
 	marker_arr_pub = this->nh.advertise<visualization_msgs::MarkerArray>(topic_rrt_viz, 0);
@@ -17,11 +34,11 @@ RRTPlanner::RRTPlanner(ros::NodeHandle &nh)
 	//          mav_msgs::default_topics::COMMAND_TRAJECTORY, 10);
 
 	// .2 resolution
-	tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(.2)));
+	tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(octree_resolution)));
 	treeCollision = std::shared_ptr<fcl::CollisionGeometry>(tree);
 
 	// .5 radius for uav
-	uavObject = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Sphere(.5));
+	uavObject = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Sphere(uav_radius));
 
 	// Construct the robot state space in which we're planning. Since we're using
 	// drones, we're planning in a subset of R^3.
@@ -30,12 +47,12 @@ RRTPlanner::RRTPlanner(ros::NodeHandle &nh)
 	// TODO: Get bounds from map!
 	// Set the bounds of space to be in [0,1].
 	ob::RealVectorBounds bounds(3);
-	bounds.setLow(0, -100);
-	bounds.setHigh(0, 100);
-	bounds.setLow(1, -100);
-	bounds.setHigh(1, 100);
-	bounds.setLow(2, -5);
-	bounds.setHigh(2, 100);
+	bounds.setLow(0, -20);
+	bounds.setHigh(0, 20);
+	bounds.setLow(1, -20);
+	bounds.setHigh(1, 20);
+	bounds.setLow(2, 0);
+	bounds.setHigh(2, 2);
 
 	space->as<ob::SE3StateSpace>()->setBounds(bounds);
 

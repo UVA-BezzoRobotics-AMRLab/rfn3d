@@ -105,6 +105,13 @@ private:
     double _max_acc;
     double _max_jerk;
 
+    double _x_min;
+    double _x_max;
+    double _y_min;
+    double _y_max;
+    double _z_min;
+    double _z_max;
+
     int _count;
     int _traj_segments;
     int _failsafe_count;

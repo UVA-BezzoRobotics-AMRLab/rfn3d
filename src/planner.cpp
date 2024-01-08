@@ -33,6 +33,14 @@ Planner::Planner(ros::NodeHandle &nh)
     nh.param<double>("max_dist_horizon", _max_dist_horizon, 10.0);
     nh.param<std::string>("frame_id", _frame_id, "uav1/local_origin");
 
+    // bounding box
+    nh.param<double>("bounding_box/x_min", _x_min, -100.0);
+    nh.param<double>("bounding_box/x_max", _x_max, 100.0);
+    nh.param<double>("bounding_box/y_min", _y_min, -100.0);
+    nh.param<double>("bounding_box/y_max", _y_max, 100.0);
+    nh.param<double>("bounding_box/z_min", _z_min, 0.0);
+    nh.param<double>("bounding_box/z_max", _z_max, 5.0);
+
     _curr_horizon = _max_dist_horizon;
 
     // drone params
@@ -279,11 +287,11 @@ bool Planner::plan(bool is_failsafe)
     ROS_INFO("generating polytopes");
 
     std::vector<Eigen::Vector3d> pcl_points;
-    Eigen::Vector3d size(30, 30, 30);
+    Eigen::Vector3d size(_x_max-_x_min, _y_max-_y_min, _z_max-_z_min);
     get_ptcld_from_octree(_odom, size, pcl_points);
 
-    Eigen::Vector3d minP(-100, -100, -100);
-    Eigen::Vector3d maxP(100, 100, 100);
+    Eigen::Vector3d minP(_x_min, _y_min, _z_min);
+    Eigen::Vector3d maxP(_x_max, _y_max, _z_max);
     if (!sfc_gen::convexCover(path, pcl_points, minP, maxP, 7.0, 5.0, _hpolys))
     {
         ROS_ERROR("Corridor Generation Failed");

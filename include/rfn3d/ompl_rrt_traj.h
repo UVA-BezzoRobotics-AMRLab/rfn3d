@@ -223,6 +223,16 @@ public:
     std::string frame_id;
     std::string topic_rrt_viz;
 
+    double uav_radius;
+    double octree_resolution;
+
+    double x_min;
+    double x_max;
+    double y_min;
+    double y_max;
+    double z_min;
+    double z_max;
+
     bool needToClear;
 
 };
