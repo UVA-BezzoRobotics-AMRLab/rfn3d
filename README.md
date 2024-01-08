@@ -8,6 +8,7 @@ This package has the following dependencies:
   sudo apt-get install libfcl-dev libpcl-dev ros-<ros_version>-octomap*
   ```
 * [mav_trajectory_generation](https://github.com/ethz-asl/mav_trajectory_generation)
+* [mav_comm](https://github.com/ethz-asl/mav_comm)
 * [OMPL](https://ompl.kavrakilab.org/installation.html)
 * [Gurobi](https://www.gurobi.com/downloads/gurobi-software/) (version 10.0+)
 * [MRS UAV System](https://github.com/ctu-mrs/mrs_uav_system)
