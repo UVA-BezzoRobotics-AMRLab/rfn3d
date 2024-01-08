@@ -220,6 +220,7 @@ public:
 
     ros::Publisher marker_arr_pub;
 
+    std::string frame_id;
     std::string topic_rrt_viz;
 
     bool needToClear;
