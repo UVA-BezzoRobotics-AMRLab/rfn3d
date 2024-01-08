@@ -18,6 +18,21 @@ simulation. It can be launched via
 roslaunch rfn3d planner.launch
 ```
 
+To publish a goal, publish to the <goal_topic> (`clicked_point` by default):
+
+```bash
+rostopic pub <goal_topic> geometry_msgs/PointStamped "header:
+  seq: 0
+  stamp:
+    secs: 0
+    nsecs: 0
+  frame_id: <frame>
+point:
+  x: <xg>
+  y: <yg>
+  z: <zg>"
+```
+
 ## Parameters
 The system has parameters to adjust the octomap, trajectory generation, and planner logistics. These parameters and their descriptions can be found in `./params/params.yaml`
 
