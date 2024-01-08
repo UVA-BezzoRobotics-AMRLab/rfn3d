@@ -20,3 +20,7 @@ roslaunch rfn3d planner.launch
 
 ## Parameters
 The system has parameters to adjust the octomap, trajectory generation, and planner logistics. These parameters and their descriptions can be found in `./params/params.yaml`
+
+## TODOS
+* Transform for pointcloud needs to be adjusted in `local_octomap`. Currently just adds SE3 position of UAV to pointcloud readings.
+* Add orientation to planner, should be relatively straightforward to achieve this.
