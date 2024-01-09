@@ -16,8 +16,15 @@ find_package(PCL REQUIRED)
 find_package(ompl REQUIRED)
 find_package(GUROBI REQUIRED)
 find_package(octomap REQUIRED)
-find_package(Eigen3 REQUIRED COMPONENTS system)
+find_package(Eigen3 REQUIRED)
+FIND_PACKAGE(PkgConfig REQUIRED)
+PKG_CHECK_MODULES(YAMLCPP REQUIRED yaml-cpp)
 
+IF(YAMLCPP_FOUND)
+  MESSAGE(STATUS "Found yaml-cpp.")
+ELSE()
+  MESSAGE(FATAL_ERROR "Could not find yaml-cpp.")
+ENDIF()
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -140,7 +147,7 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${fcl_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${OMPL_INCLUDE_DIRS}
@@ -167,6 +174,59 @@ target_link_libraries(planner
   Eigen3::Eigen
 )
 
+add_executable(planner_jps 
+  src/planner_jps.cpp 
+  src/planner_jps_node.cpp 
+  src/ompl_rrt_traj.cpp
+  src/solver.cpp
+)
+target_link_libraries(planner_jps
+  ${catkin_LIBRARIES} 
+  ${OCTOMAP_LIBRARIES}
+  ${fcl_LIBRARIES}
+  ${OMPL_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${GUROBI_LIBRARIES}
+  Eigen3::Eigen
+  jps_lib ${YAMLCPP_LIBRARIES} 
+  ${Boost_LIBRARIES}
+)
+
+add_library(jps_lib src/jps_planner/graph_search.cpp
+  src/jps_planner/jps_planner.cpp)
+
+add_library(dmp_lib src/distance_map_planner/graph_search.cpp
+  src/distance_map_planner/distance_map_planner.cpp)
+
+add_executable(create_map test/create_map.cpp)
+target_link_libraries(create_map ${YAMLCPP_LIBRARIES})
+
+include(CTest)
+
+add_executable(test_planner_2d test/test_planner_2d.cpp)
+target_link_libraries(test_planner_2d jps_lib ${YAMLCPP_LIBRARIES} ${Boost_LIBRARIES})
+add_test(test_planner_2d test_planner_2d ${CMAKE_SOURCE_DIR}/data/corridor.yaml)
+
+add_executable(test_planner_3d test/test_planner_3d.cpp)
+target_link_libraries(test_planner_3d jps_lib ${YAMLCPP_LIBRARIES})
+add_test(test_planner_3d test_planner_3d ${CMAKE_SOURCE_DIR}/data/simple3d.yaml)
+
+add_executable(test_distance_map_planner_2d test/test_distance_map_planner_2d.cpp)
+target_link_libraries(test_distance_map_planner_2d jps_lib dmp_lib ${YAMLCPP_LIBRARIES} ${Boost_LIBRARIES})
+add_test(test_distance_map_planner_2d test_distance_map_planner_2d ${CMAKE_SOURCE_DIR}/data/corridor.yaml)
+
+
+install(FILES "${PROJECT_NAME}Config.cmake" "${PROJECT_NAME}ConfigVersion.cmake"
+  DESTINATION "share/${PROJECT_NAME}/cmake")
+
+install(TARGETS jps_lib dmp_lib
+  RUNTIME DESTINATION bin
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib)
+
+install(DIRECTORY include/jps_basis include/jps_planner include/jps_collision
+  DESTINATION include)
+
 # add_executable(voxblox_rrt 
 #   src/voxblox_rrt.cpp
 # )
@@ -185,3 +245,5 @@ target_link_libraries(local_octomap
   ${OCTOMAP_LIBRARIES}
   ${PCL_LIBRARIES}
 )
+
+

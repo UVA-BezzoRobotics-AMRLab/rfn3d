@@ -1,0 +1,4 @@
+test_planner_2d 2 0.171276
+test_planner_3d 2 0.000755084
+test_distance_map_planner_2d 2 0.304453
+---
