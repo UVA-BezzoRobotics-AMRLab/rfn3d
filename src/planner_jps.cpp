@@ -177,6 +177,8 @@ void Planner::get_ptcld_from_octree(const Eigen::Vector3d &origin,
 
     for (octomap::OcTree::leaf_bbx_iterator it = _octree->begin_leafs_bbx(min, max), end = _octree->end_leafs_bbx(); it != end; ++it)
     {
+        if (_octree->search(it.getKey()) == NULL)
+            continue;
         if (_octree->isNodeOccupied(*it))
         {
             pcl_eigen.push_back(Eigen::Vector3d(it.getX(), it.getY(), it.getZ()));
