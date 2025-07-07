@@ -31,21 +31,21 @@ RRTPlanner::RRTPlanner(ros::NodeHandle &nh)
 
     std::vector<Eigen::Vector3d> pointcloud;
 
-    // Iterate through the voxels within the specified volume
-    for (voxblox::FloatingPoint x = lower_bound.x(); x < upper_bound.x(); x += voxel_size) {
-        for (voxblox::FloatingPoint y = lower_bound.y(); y < upper_bound.y(); y += voxel_size) {
-            for (voxblox::FloatingPoint z = lower_bound.z(); z < upper_bound.z(); z += voxel_size) {
-                // Get the ESDF voxel at the current position
-                double esdf_distance;
-                if (esdf_map->getDistanceAtPosition(Eigen::Vector3d(x,y,z), &esdf_distance)) {
-                    // Check if the voxel is occupied (negative ESDF value)
-                    if (esdf_distance -.5 <= 0.0) {
-                        pointcloud.push_back(Eigen::Vector3d(x, y, z));
-                    }
-                }
-            }
-        }
-    }
+    // // Iterate through the voxels within the specified volume
+    // for (voxblox::FloatingPoint x = lower_bound.x(); x < upper_bound.x(); x += voxel_size) {
+    //     for (voxblox::FloatingPoint y = lower_bound.y(); y < upper_bound.y(); y += voxel_size) {
+    //         for (voxblox::FloatingPoint z = lower_bound.z(); z < upper_bound.z(); z += voxel_size) {
+    //             // Get the ESDF voxel at the current position
+    //             double esdf_distance;
+    //             if (esdf_map->getDistanceAtPosition(Eigen::Vector3d(x,y,z), &esdf_distance)) {
+    //                 // Check if the voxel is occupied (negative ESDF value)
+    //                 if (esdf_distance -.5 <= 0.0) {
+    //                     pointcloud.push_back(Eigen::Vector3d(x, y, z));
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
 	// Construct the robot state space in which we're planning. Since we're using
 	// drones, we're planning in a subset of R^3.

@@ -1,9 +1,9 @@
 # planning parameters
 
 # frame where all planning and visualizations are performed
-frame_id: "uav1/local_origin"
+frame_id: "uav1/gps_garmin_origin"
 # period at which the planner is called
-dt: 0.5
+dt: .5
 # sample time for the trajectory
 traj_dt: 0.05
 # seconds ahead of the current time to grab initial conditions
@@ -13,8 +13,8 @@ lookahead: 1.0
 max_dist_horizon: 10.0
 
 # drone parameters
-max_vel: 3.0
-max_acc: 3.0
+max_vel: 2.0
+max_acc: 2.5
 max_jerk: 4.0
 max_w: 3.0
 
@@ -28,13 +28,14 @@ service_mrs_traj: "/uav1/control_manager/trajectory_reference"
 
 # subscribed topics
 # pointcloud topic
-topic_pointcloud: "/uav1/point_cloud_manager/merged_pointcloud"
+topic_pointcloud: "/uav1/os_cloud_nodelet/points"
 # octomap topic
 topic_octomap: "/local_octomap"
 # octomap viz topic
 topic_octomap_viz: "/octomap_viz"
 # goal topic
-topic_goal: "/clicked_point"
+# topic_goal: "/clicked_point"
+topic_goal: "/goal"
 # odom topic
 topic_odom: "/uav1/estimation_manager/odom_main"
 

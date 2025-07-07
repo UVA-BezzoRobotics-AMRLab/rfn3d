@@ -460,7 +460,8 @@ bool RRTPlanner::setStart(const Eigen::Vector3d &start, const Eigen::Vector4d &a
 bool RRTPlanner::setGoal(const Eigen::Vector3d &goal)
 {
 
-	rrtPlanner->clearQuery();
+	// rrtPlanner->clearQuery();
+	rrtPlanner->clear();
 	pdef->clearSolutionPaths();
 
 	// pdef->clearGoal();
@@ -480,7 +481,8 @@ bool RRTPlanner::setGoal(const Eigen::Vector3d &goal)
 bool RRTPlanner::setGoal(const Eigen::Vector3d &goal, const Eigen::Vector4d &axisAngle)
 {
 
-	rrtPlanner->clearQuery();
+	// rrtPlanner->clearQuery();
+	rrtPlanner->clear();
 	pdef->clearSolutionPaths();
 
 	// pdef->clearGoal();
@@ -505,5 +507,5 @@ void RRTPlanner::clear()
 	// be used to help solve the next query. Note that clear() should also clear
 	// all query-specific information along with all other datastructures in the
 	// planner. By default clearQuery() calls clear().
-	rrtPlanner->clearQuery();
+	rrtPlanner->clear();
 }

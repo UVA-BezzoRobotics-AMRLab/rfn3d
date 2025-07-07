@@ -1,7 +1,9 @@
+#include <cstdio>
 #include <ros/ros.h>
 #include <Eigen/Core>
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/LaserScan.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -11,15 +13,20 @@
 #include <octomap_msgs/conversions.h>
 #include <octomap_server/OctomapServer.h>
 
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_sensor_msgs/tf2_sensor_msgs.h>
+
+
 class OctomapFromPointCloudNode
 {
 public:
-    OctomapFromPointCloudNode() : nh("~")
+    OctomapFromPointCloudNode() : nh("~"), tfBuffer(), tfListener(tfBuffer)
     {
         // Parameters
         nh.param<double>("/octomap_res", octomapRes, .1);
 
-        nh.param<std::string>("/frame_id", frameID, "uav1/local_origin");
+        nh.param<std::string>("/frame_id", frameID, "uav1/os_sensor");
 
         nh.param<std::string>("/topic_octomap", octomapTopic, "/local_octomap");
         nh.param<std::string>("/topic_octomap_viz", visualizationTopic, "/octomap_viz");
@@ -36,6 +43,8 @@ public:
 
         // Advertise the visualization topic
         visualizationPub = nh.advertise<visualization_msgs::MarkerArray>(visualizationTopic, 1);
+
+        laserScanPub = nh.advertise<sensor_msgs::LaserScan>("/front/scan", 1);
 
         _is_init = false;
         
@@ -58,9 +67,57 @@ public:
         if (!_is_init)
             return;
 
-        pcl::fromROSMsg(*pc_msg, pointcloud);
+        // transform from uav1/os_lidar to gps_garmin_origin
+        sensor_msgs::PointCloud2 transformed_pc_msg;
+        try
+        {
+            geometry_msgs::TransformStamped transformStamped = 
+              tfBuffer.lookupTransform(frameID, "uav1/os_sensor", ros::Time(0));
 
+            tf2::doTransform(*pc_msg, transformed_pc_msg, transformStamped);
+        }
+        catch (tf2::TransformException &ex)
+        {
+            ROS_WARN("Could not transform pointcloud: %s", ex.what());
+            return;
+        }
+
+        pcl::fromROSMsg(transformed_pc_msg, pointcloud);
+
+        publishLaserScanFromPointCloud();
         publishOctomap();
+    }
+
+    void publishLaserScanFromPointCloud(double epsilon = 0.05)
+    {
+        sensor_msgs::LaserScan scan_msg;
+        scan_msg.header.stamp = ros::Time::now();
+        scan_msg.header.frame_id = frameID;
+        scan_msg.angle_min = -M_PI;
+        scan_msg.angle_max = M_PI;
+        scan_msg.angle_increment = 0.005;
+        scan_msg.range_min = 0.1;
+        scan_msg.range_max = 15.0;
+
+        int num_rays = std::round((scan_msg.angle_max - scan_msg.angle_min) / scan_msg.angle_increment);
+        scan_msg.ranges.assign(num_rays, scan_msg.range_max);
+
+        for (const auto& pt : pointcloud.points)
+        {
+            if (std::abs(pt.z - _odom(2)) > epsilon) continue;  // Filter for near-2D slice
+
+            double angle = std::atan2(pt.y, pt.x);
+            double range = std::hypot(pt.x, pt.y);
+
+            int idx = std::round((angle - scan_msg.angle_min) / scan_msg.angle_increment);
+            if (idx < 0 || idx >= num_rays) continue;
+
+            if (range < scan_msg.ranges[idx]) {
+                scan_msg.ranges[idx] = range;
+            }
+        }
+
+        laserScanPub.publish(scan_msg);
     }
 
     void publishOctomapMarkers(const octomap::OcTree& octree)
@@ -108,9 +165,17 @@ public:
         octomap::OcTree octree(octomapRes); // Set your desired resolution
 
         // add data to octree
+        const double min_radius = .45;
         for (pcl::PointCloud<pcl::PointXYZ>::iterator it = pointcloud.begin(); it != pointcloud.end(); ++it)
         {
-            octree.updateNode(octomap::point3d(it->x + _odom(0), it->y + _odom(1), it->z + _odom(2)), true);
+            
+          // Check if the point is within a certain radius to avoid cluttering the octomap
+          Eigen::Vector3d point(it->x - _odom(0), it->y - _odom(1), it->z - _odom(2));
+          if (point.norm() < min_radius)
+            continue;
+
+            /*octree.updateNode(octomap::point3d(it->x + _odom(0), it->y + _odom(1), it->z + _odom(2)), true);*/
+            octree.updateNode(octomap::point3d(it->x, it->y, it->z), true);
         }
 
         // Convert the octomap to octomap_msgs::Octomap
@@ -142,6 +207,7 @@ private:
 
     ros::Publisher octomapPub;
     ros::Publisher visualizationPub;
+    ros::Publisher laserScanPub;
 
     double octomapRes;
 
@@ -154,6 +220,9 @@ private:
 
     pcl::PointCloud<pcl::PointXYZ> pointcloud;
     Eigen::Vector3d _odom;
+
+    tf2_ros::Buffer tfBuffer;
+    tf2_ros::TransformListener tfListener;
 
     bool _is_init;
 };

@@ -1,117 +1,113 @@
 #pragma once
-#include <ros/ros.h>
-#include <nav_msgs/Path.h>
-#include <nav_msgs/Odometry.h>
-#include <sensor_msgs/PointCloud2.h>
 #include <geometry_msgs/PointStamped.h>
-#include <visualization_msgs/MarkerArray.h>
+#include <nav_msgs/Odometry.h>
+#include <nav_msgs/Path.h>
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
 #include <trajectory_msgs/MultiDOFJointTrajectory.h>
+#include <visualization_msgs/MarkerArray.h>
 
 #include <faster/solver.hpp>
+#include <gcopter/visualizer.hpp>
 #include <rfn3d/ompl_rrt_traj.h>
 
 #include <octomap_msgs/Octomap.h>
 
 // make enumerated type for drone state
-enum DroneState
-{
-    IDLE,
-    EXECUTING,
-    TURNING
-};
+enum DroneState { IDLE, EXECUTING, TURNING };
 
-class Planner
-{
+class Planner {
 public:
-    Planner();
-    Planner(ros::NodeHandle &nh);
+  Planner();
+  Planner(ros::NodeHandle &nh);
 
-    ~Planner();
+  ~Planner();
 
-    void plan_loop(const ros::TimerEvent &event);
-    void trail_loop(const ros::TimerEvent &event);
+  void plan_loop(const ros::TimerEvent &event);
+  void trail_loop(const ros::TimerEvent &event);
 
-    void spin();
+  void spin();
 
-    // callbacks
-    void odom_cb(const nav_msgs::Odometry::ConstPtr &msg);
-    void map_cb(const octomap_msgs::Octomap::ConstPtr &msg);
-    void goal_cb(const geometry_msgs::PointStamped::ConstPtr &msg);
+  // callbacks
+  void odom_cb(const nav_msgs::Odometry::ConstPtr &msg);
+  void map_cb(const octomap_msgs::Octomap::ConstPtr &msg);
+  void goal_cb(const geometry_msgs::PoseStamped::ConstPtr &msg);
 
-    void get_ptcld_from_octree(const Eigen::Vector3d &origin,
-                               const Eigen::Vector3d &size,
-                               std::vector<Eigen::Vector3d> &pcl_eigen);
+  void get_ptcld_from_octree(const Eigen::Vector3d &origin,
+                             const Eigen::Vector3d &size,
+                             std::vector<Eigen::Vector3d> &pcl_eigen);
 
-    bool plan(bool is_failsafe = false);
-    // void visualize_trajectory();
+  bool plan(bool is_failsafe = false);
+  // void visualize_trajectory();
 
-    ros::ServiceClient _mrs_traj_client;
+  ros::ServiceClient _mrs_traj_client;
 
-    ros::Subscriber _map_sub;
-    ros::Subscriber _goal_sub;
-    ros::Subscriber _odom_sub;
+  ros::Subscriber _map_sub;
+  ros::Subscriber _goal_sub;
+  ros::Subscriber _odom_sub;
 
-    ros::Publisher _ref_pub;
-    ros::Publisher _traj_pub;
-    ros::Publisher _trail_pub;
-    ros::Publisher _mrs_traj_pub;
-    ros::Publisher _traj_viz_pub;
+  ros::Publisher _ref_pub;
+  ros::Publisher _traj_pub;
+  ros::Publisher _trail_pub;
+  ros::Publisher _mrs_traj_pub;
+  ros::Publisher _traj_viz_pub;
 
 private:
-    std::shared_ptr<RRTPlanner> _rrt_planner;
-    std::shared_ptr<octomap::OcTree> _octree;
+  std::shared_ptr<RRTPlanner> _rrt_planner;
+  std::shared_ptr<octomap::OcTree> _octree;
 
-    Eigen::Vector3d _goal;
-    Eigen::Vector3d _odom;
+  Eigen::Vector3d _goal;
+  Eigen::Vector3d _odom;
 
-    std::vector<Eigen::Vector3d> _jerks;
-    std::vector<Eigen::MatrixX4d> _hpolys;
+  std::vector<Eigen::Vector3d> _jerks;
+  std::vector<Eigen::MatrixX4d> _hpolys;
 
-    SolverGurobi _traj_solver;
+  SolverGurobi _traj_solver;
 
-    ros::Time _start;
+  ros::Time _start;
 
-    ros::Timer _plan_timer;
-    ros::Timer _trail_timer;
+  ros::Timer _plan_timer;
+  ros::Timer _trail_timer;
 
-    trajectory_msgs::MultiDOFJointTrajectory _sent_traj;
+  trajectory_msgs::MultiDOFJointTrajectory _sent_traj;
 
-    std::string _frame_id;
+  std::string _frame_id;
 
-    // subscribed topic strings
-    std::string _topic_goal;
-    std::string _topic_odom;
-    std::string _topic_octomap;
+  // subscribed topic strings
+  std::string _topic_goal;
+  std::string _topic_odom;
+  std::string _topic_octomap;
 
-    // published topic strings
-    std::string _topic_traj;
-    std::string _topic_traj_viz;
-    std::string _topic_trail_viz;
-    std::string _topic_traj_ref_viz;
+  // published topic strings
+  std::string _topic_traj;
+  std::string _topic_traj_viz;
+  std::string _topic_trail_viz;
+  std::string _topic_traj_ref_viz;
 
-    // service strings
-    std::string _service_mrs_traj;
+  // service strings
+  std::string _service_mrs_traj;
 
-    nav_msgs::Path _trail;
+  nav_msgs::Path _trail;
 
-    double _dt;
-    double _traj_dt;
-    double _lookahead;
-    double _curr_horizon;
-    double _max_dist_horizon;
+  double _dt;
+  double _traj_dt;
+  double _lookahead;
+  double _curr_horizon;
+  double _max_dist_horizon;
 
-    double _max_w;
-    double _max_vel;
-    double _max_acc;
-    double _max_jerk;
+  double _max_w;
+  double _max_vel;
+  double _max_acc;
+  double _max_jerk;
 
-    int _count;
-    int _traj_segments;
-    int _failsafe_count;
+  int _count;
+  int _traj_segments;
+  int _failsafe_count;
 
-    bool _map_init;
-    bool _odom_init;
-    bool _is_goal_set;
+  bool _map_init;
+  bool _odom_init;
+  bool _is_goal_set;
 
-    DroneState _drone_state;
+  DroneState _drone_state;
+  std::unique_ptr<Visualizer> _visualizer;
 };

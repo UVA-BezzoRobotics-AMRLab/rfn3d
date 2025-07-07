@@ -60,6 +60,7 @@ public:
     ros::Subscriber _goal_sub;
     ros::Subscriber _odom_sub;
 
+    ros::Publisher _jps_pub;
     ros::Publisher _ref_pub;
     ros::Publisher _traj_pub;
     ros::Publisher _trail_pub;
@@ -68,9 +69,9 @@ public:
 
 private:
     // std::shared_ptr<RRTPlanner> _rrt_planner;
-    std::shared_ptr<JPS::VoxelMapUtil> map_util;
+    // std::shared_ptr<JPS::VoxelMapUtil> map_util;
     std::shared_ptr<octomap::OcTree> _octree;
-    std::unique_ptr<JPSPlanner3D> planner_ptr;
+    // std::unique_ptr<JPSPlanner3D> planner_ptr;
 
     
     std::vector<signed char> occ_array; // Occupancy array for JPS planning
