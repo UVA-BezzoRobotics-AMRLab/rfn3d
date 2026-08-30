@@ -1,0 +1,10 @@
+# ROS1 compile-check harness for rfn3d. macOS can't build this natively.
+#   docker compose -f docker/docker-compose.yml build          # compiles; fails if the branch doesn't build
+#   docker compose -f docker/docker-compose.yml run --rm build # shell in the built /ws workspace
+services:
+  build:
+    platform: linux/amd64  # Gurobi is x86-64 only; emulated on Apple Silicon
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: rfn3d/build:noetic
