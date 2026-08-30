@@ -1,6 +1,8 @@
 #ifndef RFN3D_RFN_TYPES_H
 #define RFN3D_RFN_TYPES_H
 
+#include <string>
+
 #include <Eigen/Core>
 
 // ROS-free types shared by the planner core and both ROS wrappers.
@@ -17,6 +19,10 @@ struct rfn_state_t {
 // Tunables for the planning pipeline. Defaults mirror the values that were
 // hard-coded in the original ROS1 planner.
 struct planner_params_t {
+  // trajectory-generation back-end: "gcopter" (default, license-free) or
+  // "faster" (Gurobi MIQP; only available when built with Gurobi).
+  std::string solver = "gcopter";
+
   // receding horizon / trajectory sampling
   double traj_dt = 0.05;            // trajectory sample period (s)
   double max_dist_horizon = 10.0;   // upper bound on the receding horizon (m)

@@ -18,14 +18,23 @@ add_compile_options(-std=c++17 -O3)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
-# Gurobi (required by the FASTER solver). Set vars straight from GUROBI_HOME —
-# the bundled FindGUROBI.cmake hard-codes library names and misses versioned .so.
-if(NOT DEFINED ENV{GUROBI_HOME})
-  message(FATAL_ERROR "GUROBI_HOME is not set (needed to link the FASTER solver)")
+# Gurobi is OPTIONAL: only the FASTER back-end uses it (and it needs a license at
+# runtime). If GUROBI_HOME points at an install, FASTER is built too; otherwise
+# gcopter (license-free) is the only back-end. Vars are set straight from
+# GUROBI_HOME since the bundled FindGUROBI.cmake misses the versioned .so.
+set(HAVE_GUROBI FALSE)
+if(DEFINED ENV{GUROBI_HOME})
+  file(GLOB GurobiSOFiles $ENV{GUROBI_HOME}/lib/libgurobi*[0-9]*.so)
+  if(GurobiSOFiles)
+    set(GUROBI_INCLUDE_DIRS "$ENV{GUROBI_HOME}/include")
+    set(GUROBI_LIBRARIES "$ENV{GUROBI_HOME}/lib/libgurobi_c++.a;${GurobiSOFiles};")
+    set(HAVE_GUROBI TRUE)
+    message(STATUS "Gurobi found; building the FASTER back-end")
+  endif()
 endif()
-set(GUROBI_INCLUDE_DIRS "$ENV{GUROBI_HOME}/include")
-file(GLOB GurobiSOFiles $ENV{GUROBI_HOME}/lib/libgurobi*[0-9]*.so)
-set(GUROBI_LIBRARIES "$ENV{GUROBI_HOME}/lib/libgurobi_c++.a;${GurobiSOFiles};")
+if(NOT HAVE_GUROBI)
+  message(STATUS "Gurobi not found; FASTER disabled, gcopter is the only back-end")
+endif()
 
 find_package(ompl REQUIRED)
 find_package(octomap REQUIRED)
@@ -37,20 +46,26 @@ find_package(Eigen3 REQUIRED)
 add_library(planner_lib
   src/planner_core.cpp
   src/ompl_rrt_traj.cpp
-  src/solver.cpp
+  src/gcopter_solver.cpp
 )
 set_target_properties(planner_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(planner_lib PUBLIC
   include
   ${OMPL_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
-  ${GUROBI_INCLUDE_DIRS}
 )
 target_link_libraries(planner_lib
   ${OMPL_LIBRARIES}
-  ${GUROBI_LIBRARIES}
   Eigen3::Eigen
 )
+
+# FASTER (Gurobi) back-end, only when Gurobi is available.
+if(HAVE_GUROBI)
+  target_sources(planner_lib PRIVATE src/solver.cpp src/faster_solver.cpp)
+  target_compile_definitions(planner_lib PUBLIC GUROBI_FOUND)
+  target_include_directories(planner_lib PUBLIC ${GUROBI_INCLUDE_DIRS})
+  target_link_libraries(planner_lib ${GUROBI_LIBRARIES})
+endif()
 
 ########################
 # ROS 1 wrapper

@@ -6,10 +6,10 @@
 
 #include <Eigen/Core>
 
-#include <faster/solver.hpp>
 #include <gcopter/voxel_map.hpp>
 #include <rfn3d/ompl_rrt_traj.h>
 #include <rfn3d/rfn_types.h>
+#include <rfn3d/solver_base.h>
 
 // ROS-free planning pipeline: RRT* front-end -> safe flight corridor ->
 // FASTER (Gurobi) minimum-jerk trajectory. Owns no ROS state; the ROS1/ROS2
@@ -38,7 +38,7 @@ public:
 
 private:
   std::unique_ptr<RRTPlanner> _rrt;
-  SolverGurobi _solver;
+  std::unique_ptr<SolverBase> _solver;
   planner_params_t _params;
 
   // Dilated occupancy map built from the obstacle cloud each plan(); the RRT

@@ -1,33 +1,22 @@
 # ROS2 (Humble) image for rfn3d. Builds the ament `planner_node` (and the
-# ROS-free planner_lib core) via colcon and runs it. rfn3d no longer depends on
-# FCL, so this builds cleanly on jammy (which ships an incompatible FCL 0.7).
+# ROS-free planner_lib core) via colcon and runs it. Uses the license-free
+# gcopter back-end (no Gurobi), and rfn3d no longer depends on FCL, so this
+# builds cleanly on jammy (which ships an incompatible FCL 0.7).
 #
-# Pinned to linux/amd64: Gurobi ships x86-64 Linux libraries only, so on Apple
-# Silicon this builds under emulation (slower, but a one-time cached build).
+# Pinned to linux/amd64 for parity with the ROS1 image; runs under emulation on
+# Apple Silicon.
 FROM --platform=linux/amd64 ros:humble-ros-base
 
 SHELL ["/bin/bash", "-c"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential cmake git ca-certificates wget \
+      build-essential cmake git \
       libeigen3-dev libompl-dev libboost-all-dev \
       ros-humble-octomap ros-humble-octomap-msgs \
       ros-humble-nav-msgs ros-humble-geometry-msgs ros-humble-std-msgs \
       ros-humble-sensor-msgs ros-humble-trajectory-msgs \
       ros-humble-visualization-msgs ros-humble-tf2 ros-humble-tf2-ros \
     && rm -rf /var/lib/apt/lists/*
-
-# Gurobi — needed only to COMPILE and LINK (headers + libs). A license is checked
-# at RUNTIME when GRBEnv is created, never while linking.
-ARG GUROBI_DIR=gurobi1103
-ARG GUROBI_TARBALL=gurobi11.0.3_linux64.tar.gz
-RUN wget -q "https://packages.gurobi.com/11.0/${GUROBI_TARBALL}" -O /tmp/g.tgz \
-    && tar -xzf /tmp/g.tgz -C /opt \
-    && rm /tmp/g.tgz
-ENV GUROBI_HOME=/opt/${GUROBI_DIR}/linux64
-ENV LD_LIBRARY_PATH=${GUROBI_HOME}/lib
-RUN cd ${GUROBI_HOME}/src/build && make -j"$(nproc)" \
-    && cp libgurobi_c++.a ${GUROBI_HOME}/lib/
 
 WORKDIR /ws
 COPY . src/rfn3d
