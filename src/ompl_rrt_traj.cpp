@@ -7,12 +7,6 @@
 // Constructor from https://ompl.kavrakilab.org/optimalPlanningTutorial.html
 RRTPlanner::RRTPlanner()
 {
-	// .2 resolution
-	treeCollision = std::make_shared<fcl::OcTree>(std::make_shared<const octomap::OcTree>(.2));
-
-	// .5 radius for uav
-	uavObject = std::make_shared<fcl::Sphere>(.5);
-
 	// Construct the robot state space in which we're planning. Since we're using
 	// drones, we're planning in a subset of R^3.
 	space = ob::StateSpacePtr(new ob::SE3StateSpace());
@@ -93,9 +87,9 @@ ob::PlannerStatus RRTPlanner::solve(std::vector<Eigen::Vector3d, Eigen::aligned_
 	return planStatus;
 }
 
-void RRTPlanner::updateMap(std::shared_ptr<fcl::CollisionGeometry> map)
+void RRTPlanner::updateMap(const voxel_map::VoxelMap *map)
 {
-	treeCollision = map;
+	_map = map;
 }
 
 ob::PlannerStatus RRTPlanner::solveHelper()

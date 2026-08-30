@@ -12,7 +12,7 @@ SHELL ["/bin/bash", "-c"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake git ca-certificates wget \
-      libeigen3-dev libfcl-dev libccd-dev \
+      libeigen3-dev \
       ros-noetic-ompl \
       ros-noetic-octomap ros-noetic-octomap-msgs \
       ros-noetic-nav-msgs ros-noetic-geometry-msgs ros-noetic-std-msgs \

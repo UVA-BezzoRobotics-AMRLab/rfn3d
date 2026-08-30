@@ -1,5 +1,7 @@
 #include <rfn3d/planner_core.h>
 
+#include <cmath>
+
 #include <gcopter/sfc_gen.hpp>
 
 namespace
@@ -72,11 +74,6 @@ void PlannerCore::set_params(const planner_params_t &params)
     _solver.setUseMinvo(params.use_minvo);
 }
 
-void PlannerCore::set_collision_map(std::shared_ptr<fcl::CollisionGeometry> map)
-{
-    _rrt->updateMap(map);
-}
-
 PlannerStatus PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
                                 const Eigen::Vector3d &goal,
                                 const std::vector<Eigen::Vector3d> &cloud,
@@ -86,6 +83,32 @@ PlannerStatus PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
     {
         return PlannerStatus::EMPTY_CLOUD;
     }
+
+    // Build a dilated occupancy map from the cloud for RRT collision checks.
+    // The grid spans the cloud's bounding box padded by the robot radius, and
+    // dilation by that radius means a free query() already clears the robot.
+    Eigen::Vector3d lo = cloud.front();
+    Eigen::Vector3d hi = cloud.front();
+    for (const Eigen::Vector3d &p : cloud)
+    {
+        lo = lo.cwiseMin(p);
+        hi = hi.cwiseMax(p);
+    }
+
+    const double scale = _params.map_resolution;
+    const double margin = _params.robot_radius + scale;
+    lo.array() -= margin;
+    hi.array() += margin;
+
+    const Eigen::Vector3i size =
+        ((hi - lo) / scale).array().ceil().cast<int>().matrix().cwiseMax(Eigen::Vector3i::Ones());
+    _vmap = voxel_map::VoxelMap(size, lo, scale);
+    for (const Eigen::Vector3d &p : cloud)
+    {
+        _vmap.setOccupied(p);
+    }
+    _vmap.dilate(static_cast<int>(std::ceil(_params.robot_radius / scale)));
+    _rrt->updateMap(&_vmap);
 
     // RRT* front-end.
     _rrt->setStart(initialPVAJ.col(0));

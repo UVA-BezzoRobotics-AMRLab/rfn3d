@@ -27,7 +27,6 @@ set(GUROBI_INCLUDE_DIRS "$ENV{GUROBI_HOME}/include")
 file(GLOB GurobiSOFiles $ENV{GUROBI_HOME}/lib/libgurobi*[0-9]*.so)
 set(GUROBI_LIBRARIES "$ENV{GUROBI_HOME}/lib/libgurobi_c++.a;${GurobiSOFiles};")
 
-find_package(fcl REQUIRED)
 find_package(ompl REQUIRED)
 find_package(octomap REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -43,15 +42,11 @@ add_library(planner_lib
 set_target_properties(planner_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(planner_lib PUBLIC
   include
-  ${fcl_INCLUDE_DIRS}
   ${OMPL_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${GUROBI_INCLUDE_DIRS}
-  ${OCTOMAP_INCLUDE_DIRS}
 )
 target_link_libraries(planner_lib
-  ${OCTOMAP_LIBRARIES}
-  ${fcl_LIBRARIES}
   ${OMPL_LIBRARIES}
   ${GUROBI_LIBRARIES}
   Eigen3::Eigen
@@ -79,10 +74,12 @@ if(ROS_VERSION EQUAL 1)
   target_include_directories(planner PRIVATE
     planner_ros1/include
     ${catkin_INCLUDE_DIRS}
+    ${OCTOMAP_INCLUDE_DIRS}
   )
   target_link_libraries(planner
     planner_lib
     ${catkin_LIBRARIES}
+    ${OCTOMAP_LIBRARIES}
   )
 
 ########################
@@ -97,24 +94,25 @@ elseif(ROS_VERSION EQUAL 2)
   find_package(sensor_msgs REQUIRED)
   find_package(trajectory_msgs REQUIRED)
   find_package(visualization_msgs REQUIRED)
+  find_package(octomap_msgs REQUIRED)
   find_package(tf2 REQUIRED)
   find_package(tf2_ros REQUIRED)
 
-  # The ROS2 node sources don't exist yet; guard so the package still configures.
-  if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/planner_ros2/src/planner_ros2_node.cpp")
-    add_executable(planner_node
-      planner_ros2/src/planner_ros2.cpp
-      planner_ros2/src/planner_ros2_node.cpp
-    )
-    target_include_directories(planner_node PRIVATE planner_ros2/include)
-    target_link_libraries(planner_node planner_lib)
-    ament_target_dependencies(planner_node
-      rclcpp nav_msgs std_msgs geometry_msgs sensor_msgs
-      trajectory_msgs visualization_msgs tf2 tf2_ros
-    )
-    install(TARGETS planner_node DESTINATION lib/${PROJECT_NAME})
-    install(DIRECTORY planner_ros2/launch DESTINATION share/${PROJECT_NAME})
-  endif()
+  add_executable(planner_node
+    planner_ros2/src/planner_ros2.cpp
+    planner_ros2/src/planner_ros2_node.cpp
+  )
+  target_include_directories(planner_node PRIVATE
+    planner_ros2/include
+    ${OCTOMAP_INCLUDE_DIRS}
+  )
+  target_link_libraries(planner_node planner_lib ${OCTOMAP_LIBRARIES})
+  ament_target_dependencies(planner_node
+    rclcpp nav_msgs std_msgs geometry_msgs sensor_msgs
+    trajectory_msgs visualization_msgs octomap_msgs tf2 tf2_ros
+  )
+  install(TARGETS planner_node DESTINATION lib/${PROJECT_NAME})
+  install(DIRECTORY planner_ros2/launch DESTINATION share/${PROJECT_NAME})
 
   ament_package()
 endif()

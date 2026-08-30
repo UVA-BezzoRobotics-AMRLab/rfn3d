@@ -1,19 +1,11 @@
 #ifndef RFN3D_OMPL_RRT_TRAJ_H
 #define RFN3D_OMPL_RRT_TRAJ_H
 
-#include <memory>
 #include <vector>
 
 #include <Eigen/Core>
 
-#include <octomap/octomap.h>
-
-#include <fcl/config.h>
-#include <fcl/octree.h>
-#include <fcl/collision.h>
-#include <fcl/math/transform.h>
-#include <fcl/broadphase/broadphase.h>
-#include <fcl/traversal/traversal_node_octree.h>
+#include <gcopter/voxel_map.hpp>
 
 #include <ompl/base/StateSpace.h>
 #include <ompl/base/ProblemDefinition.h>
@@ -24,8 +16,10 @@
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
 
-// ROS-free RRT* front-end over an fcl octree collision map. Visualization and
-// logging live in the ROS wrappers; solve() only returns geometric waypoints.
+// ROS-free RRT* front-end. Collision is a lookup into a dilated
+// voxel_map::VoxelMap built from the obstacle cloud (owned by the caller);
+// positions outside the local map are treated as free so the tree can expand
+// past the mapped region. solve() returns geometric waypoints.
 class RRTPlanner
 {
 public:
@@ -41,23 +35,25 @@ public:
     {
         const ob::SE3StateSpace::StateType *st = state->as<ob::SE3StateSpace::StateType>();
         const ob::RealVectorStateSpace::StateType *pos = st->as<ob::RealVectorStateSpace::StateType>(0);
-        const ob::SO3StateSpace::StateType *rot = st->as<ob::SO3StateSpace::StateType>(1);
+        const Eigen::Vector3d p(pos->values[0], pos->values[1], pos->values[2]);
 
-        fcl::CollisionObject tree_obj(treeCollision);
-        fcl::CollisionObject quadCollision(uavObject);
+        if (_map == nullptr)
+        {
+            return true;
+        }
 
-        fcl::Vec3f translation(pos->values[0], pos->values[1], pos->values[2]);
-        fcl::Quaternion3f rotation(rot->w, rot->x, rot->y, rot->z);
-        quadCollision.setTransform(rotation, translation);
+        // Outside the local map is unknown; treat it as free.
+        const Eigen::Vector3d origin = _map->getOrigin();
+        const Eigen::Vector3d corner = _map->getCorner();
+        if ((p.array() < origin.array()).any() || (p.array() >= corner.array()).any())
+        {
+            return true;
+        }
 
-        fcl::CollisionRequest requestType(1, false, 1, false);
-        fcl::CollisionResult collisionResult;
-        fcl::collide(&quadCollision, &tree_obj, requestType, collisionResult);
-
-        return !collisionResult.isCollision();
+        return !_map->query(p);
     }
 
-    void updateMap(std::shared_ptr<fcl::CollisionGeometry> map);
+    void updateMap(const voxel_map::VoxelMap *map);
     ob::PlannerStatus solveHelper();
     void clear();
 
@@ -66,11 +62,9 @@ public:
     ob::ProblemDefinitionPtr pdef;
     ob::StateSpacePtr space;
 
-    // treeCollision / uavObject are shared_ptr because fcl::CollisionObject
-    // takes ownership as a shared_ptr<CollisionGeometry>, and updateMap()
-    // receives a map whose ownership is shared with the caller.
-    std::shared_ptr<fcl::CollisionGeometry> treeCollision;
-    std::shared_ptr<fcl::CollisionGeometry> uavObject;
+    // Non-owning: the collision map is owned by the caller (PlannerCore) and
+    // must outlive any solve().
+    const voxel_map::VoxelMap *_map = nullptr;
 
     bool needToClear;
 };
