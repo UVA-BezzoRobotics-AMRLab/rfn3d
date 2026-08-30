@@ -1,4 +1,5 @@
-#pragma once
+#ifndef RFN3D_UTILS_H
+#define RFN3D_UTILS_H
 
 #include <string>
 #include <vector>
@@ -132,3 +133,5 @@ namespace utils
     }
 
 } // namespace utils
+
+#endif // RFN3D_UTILS_H

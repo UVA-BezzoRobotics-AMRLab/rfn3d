@@ -1,5 +1,5 @@
-#ifndef OMPLRRTTRAJ_H
-#define OMPLRRTTRAJ_H
+#ifndef RFN3D_OMPL_RRT_TRAJ_H
+#define RFN3D_OMPL_RRT_TRAJ_H
 
 #include <memory>
 #include <vector>
@@ -66,10 +66,12 @@ public:
     ob::ProblemDefinitionPtr pdef;
     ob::StateSpacePtr space;
 
-    fcl::OcTree *tree;
+    // treeCollision / uavObject are shared_ptr because fcl::CollisionObject
+    // takes ownership as a shared_ptr<CollisionGeometry>, and updateMap()
+    // receives a map whose ownership is shared with the caller.
     std::shared_ptr<fcl::CollisionGeometry> treeCollision;
     std::shared_ptr<fcl::CollisionGeometry> uavObject;
 
     bool needToClear;
 };
-#endif
+#endif // RFN3D_OMPL_RRT_TRAJ_H

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef RFN3D_PLANNER_ROS1_H
+#define RFN3D_PLANNER_ROS1_H
 
 #include <memory>
 #include <string>
@@ -24,7 +25,6 @@ class PlannerROS1
 {
 public:
     explicit PlannerROS1(ros::NodeHandle &nh);
-    ~PlannerROS1();
 
     void spin();
 
@@ -54,7 +54,7 @@ private:
 
     trajectory_msgs::MultiDOFJointTrajectory _sent_traj;
     nav_msgs::Path _trail;
-    std::string _frame_id;
+    std::string _frame_id = "world";
 
     ros::Subscriber _goal_sub;
     ros::Subscriber _odom_sub;
@@ -69,16 +69,18 @@ private:
     ros::Timer _plan_timer;
     ros::Timer _trail_timer;
 
-    double _dt;
-    double _traj_dt;
-    double _lookahead;
-    double _curr_horizon;
-    double _max_dist_horizon;
+    double _dt = 0.5;
+    double _traj_dt;         // set from params in the ctor
+    double _lookahead = 1.0;
+    double _curr_horizon = 10.0;
+    double _max_dist_horizon; // set from params in the ctor
 
-    int _count;
-    int _failsafe_count;
+    int _count = 0;
+    int _failsafe_count;      // set from params in the ctor
 
-    bool _map_init;
-    bool _odom_init;
-    bool _is_goal_set;
+    bool _map_init = false;
+    bool _odom_init = false;
+    bool _is_goal_set = false;
 };
+
+#endif // RFN3D_PLANNER_ROS1_H

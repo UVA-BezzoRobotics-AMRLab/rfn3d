@@ -1,7 +1,8 @@
-# Compile-check harness for rfn3d (ROS1 Noetic). rfn3d is a blended ROS1/ROS2
-# catkin/ament package that won't build natively on macOS; this builds the ROS1
-# `planner` target (and the ROS-free planner_lib core) in a Linux container.
-# `docker compose build` fails loudly if it doesn't compile.
+# ROS1 (Noetic) image for rfn3d. rfn3d is a blended ROS1/ROS2 catkin/ament
+# package that won't build natively on macOS; this builds the ROS1 `planner`
+# target (and the ROS-free planner_lib core) in a Linux container and runs it.
+# `docker compose build` fails loudly if it doesn't compile; `up`/`run` launches
+# the node (see docker/entrypoint.ros1.sh). A ROS2 image lands separately.
 #
 # Pinned to linux/amd64: Gurobi ships x86-64 Linux libraries only, so on Apple
 # Silicon this builds under emulation (slower, but a one-time cached build).
@@ -39,4 +40,6 @@ RUN source /opt/ros/noetic/setup.bash \
     && echo "=== rfn3d planner built OK ===" \
     && ls -la devel/lib/rfn3d/
 
-CMD ["bash"]
+COPY docker/entrypoint.ros1.sh /entrypoint.ros1.sh
+RUN chmod +x /entrypoint.ros1.sh
+ENTRYPOINT ["/entrypoint.ros1.sh"]

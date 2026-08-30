@@ -8,11 +8,10 @@
 RRTPlanner::RRTPlanner()
 {
 	// .2 resolution
-	tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(.2)));
-	treeCollision = std::shared_ptr<fcl::CollisionGeometry>(tree);
+	treeCollision = std::make_shared<fcl::OcTree>(std::make_shared<const octomap::OcTree>(.2));
 
 	// .5 radius for uav
-	uavObject = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Sphere(.5));
+	uavObject = std::make_shared<fcl::Sphere>(.5);
 
 	// Construct the robot state space in which we're planning. Since we're using
 	// drones, we're planning in a subset of R^3.

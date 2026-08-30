@@ -1,4 +1,5 @@
-#pragma once
+#ifndef RFN3D_RFN_TYPES_H
+#define RFN3D_RFN_TYPES_H
 
 #include <Eigen/Core>
 
@@ -6,11 +7,11 @@
 
 // One sample along a trajectory: full pos/vel/accel/jerk state at time t.
 struct rfn_state_t {
-  Eigen::Vector3d pos = Eigen::Vector3d::Zero();
-  Eigen::Vector3d vel = Eigen::Vector3d::Zero();
-  Eigen::Vector3d accel = Eigen::Vector3d::Zero();
-  Eigen::Vector3d jerk = Eigen::Vector3d::Zero();
-  double t = 0.0;
+  Eigen::Vector3d pos{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d vel{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d accel{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d jerk{Eigen::Vector3d::Zero()};
+  double t{0.0};
 };
 
 // Tunables for the planning pipeline. Defaults mirror the values that were
@@ -60,3 +61,5 @@ enum class PlannerStatus {
   CORRIDOR_NO_OVERLAP,
   SOLVER_FAILED,
 };
+
+#endif // RFN3D_RFN_TYPES_H

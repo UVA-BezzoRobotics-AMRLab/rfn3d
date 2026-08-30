@@ -1,4 +1,5 @@
-#pragma once
+#ifndef RFN3D_PLANNER_CORE_H
+#define RFN3D_PLANNER_CORE_H
 
 #include <memory>
 #include <vector>
@@ -32,9 +33,11 @@ public:
                      const std::vector<Eigen::Vector3d> &cloud,
                      double horizon);
 
-  const std::vector<rfn_state_t> &get_trajectory() const { return _traj; }
-  const std::vector<Eigen::MatrixX4d> &get_hpolys() const { return _hpolys; }
-  const std::vector<Eigen::Vector3d> &get_rrt_path() const { return _rrt_path; }
+  // Return by value: a subsequent plan() overwrites these members, so handing
+  // out references would leave callers holding invalidated data.
+  std::vector<rfn_state_t> get_trajectory() const { return _traj; }
+  std::vector<Eigen::MatrixX4d> get_hpolys() const { return _hpolys; }
+  std::vector<Eigen::Vector3d> get_rrt_path() const { return _rrt_path; }
 
 private:
   std::unique_ptr<RRTPlanner> _rrt;
@@ -45,3 +48,5 @@ private:
   std::vector<Eigen::MatrixX4d> _hpolys;
   std::vector<Eigen::Vector3d> _rrt_path;
 };
+
+#endif // RFN3D_PLANNER_CORE_H

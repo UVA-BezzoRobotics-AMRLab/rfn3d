@@ -5,22 +5,12 @@
 
 PlannerROS1::PlannerROS1(ros::NodeHandle &nh)
 {
-    _frame_id = "world";
-
-    _params = planner_params_t{};
     _core.set_params(_params);
 
-    _dt = .5;
+    // These mirror the core's params, so derive them rather than duplicating.
     _traj_dt = _params.traj_dt;
-    _lookahead = 1.;
-    _curr_horizon = 10.;
     _max_dist_horizon = _params.max_dist_horizon;
     _failsafe_count = _params.failsafe_count;
-
-    _count = 0;
-    _map_init = false;
-    _odom_init = false;
-    _is_goal_set = false;
 
     _trail.header.frame_id = _frame_id;
     _trail.header.stamp = ros::Time::now();
@@ -36,10 +26,6 @@ PlannerROS1::PlannerROS1(ros::NodeHandle &nh)
     _ref_pub = nh.advertise<geometry_msgs::PointStamped>("/traj_ref", 1);
     _traj_viz_pub = nh.advertise<visualization_msgs::MarkerArray>("/traj_viz", 1);
     _traj_pub = nh.advertise<trajectory_msgs::MultiDOFJointTrajectory>("/firefly/command/trajectory", 1);
-}
-
-PlannerROS1::~PlannerROS1()
-{
 }
 
 void PlannerROS1::spin()

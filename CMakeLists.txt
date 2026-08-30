@@ -100,7 +100,7 @@ elseif(ROS_VERSION EQUAL 2)
   find_package(tf2 REQUIRED)
   find_package(tf2_ros REQUIRED)
 
-  # planner_ros2 sources land in TRAJ-17; guard so the package still configures.
+  # The ROS2 node sources don't exist yet; guard so the package still configures.
   if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/planner_ros2/src/planner_ros2_node.cpp")
     add_executable(planner_node
       planner_ros2/src/planner_ros2.cpp
