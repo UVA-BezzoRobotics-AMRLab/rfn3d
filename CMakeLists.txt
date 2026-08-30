@@ -1,177 +1,120 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.16)
 project(rfn3d)
 
-## Compile as C++11, supported in ROS Kinetic and newer
+# Detect ROS 1 (catkin) vs ROS 2 (ament) so one tree builds under both.
+if(NOT DEFINED ROS_VERSION)
+  find_package(catkin QUIET)
+  if(catkin_FOUND)
+    set(ROS_VERSION 1)
+  else()
+    find_package(rclcpp QUIET)
+    if(rclcpp_FOUND)
+      set(ROS_VERSION 2)
+    endif()
+  endif()
+endif()
+
 add_compile_options(-std=c++17 -O3)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
-# Using GUROBI_LIBRARY on it's own isn't enough to get things to compile...
-# Snippet taken from https://github.com/mit-acl/faster/blob/master/faster/CMakeLists.txt
-FILE(GLOB GurobiSOFiles $ENV{GUROBI_HOME}/lib/libgurobi*[0-9]*.so) #files that are start with libgurobi and end with number.so
-set(GUROBI_LIBRARIES "$ENV{GUROBI_HOME}/lib/libgurobi_c++.a;${GurobiSOFiles};" )
+# Gurobi (required by the FASTER solver). Set vars straight from GUROBI_HOME —
+# the bundled FindGUROBI.cmake hard-codes library names and misses versioned .so.
+if(NOT DEFINED ENV{GUROBI_HOME})
+  message(FATAL_ERROR "GUROBI_HOME is not set (needed to link the FASTER solver)")
+endif()
+set(GUROBI_INCLUDE_DIRS "$ENV{GUROBI_HOME}/include")
+file(GLOB GurobiSOFiles $ENV{GUROBI_HOME}/lib/libgurobi*[0-9]*.so)
+set(GUROBI_LIBRARIES "$ENV{GUROBI_HOME}/lib/libgurobi_c++.a;${GurobiSOFiles};")
 
 find_package(fcl REQUIRED)
-find_package(PCL REQUIRED)
 find_package(ompl REQUIRED)
-find_package(GUROBI REQUIRED)
 find_package(octomap REQUIRED)
-find_package(Eigen3 REQUIRED COMPONENTS system)
+find_package(Eigen3 REQUIRED)
 
-## Find catkin macros and libraries
-## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
-## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS
-  nav_msgs
-  roscpp
-  rospy
-  geometry_msgs
-  std_msgs
-  octomap_msgs
-  trajectory_msgs
-  mav_trajectory_generation
-  mav_trajectory_generation_ros
-  voxblox_ros
-)
-
-
-
-## System dependencies are found with CMake's conventions
-# find_package(Boost REQUIRED COMPONENTS system)
-
-
-## Uncomment this if the package has a setup.py. This macro ensures
-## modules and global scripts declared therein get installed
-## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
-
-################################################
-## Declare ROS messages, services and actions ##
-################################################
-
-## To declare and build messages, services or actions from within this
-## package, follow these steps:
-## * Let MSG_DEP_SET be the set of packages whose message types you use in
-##   your messages/services/actions (e.g. std_msgs, actionlib_msgs, ...).
-## * In the file package.xml:
-##   * add a build_depend tag for "message_generation"
-##   * add a build_depend and a exec_depend tag for each package in MSG_DEP_SET
-##   * If MSG_DEP_SET isn't empty the following dependency has been pulled in
-##     but can be declared for certainty nonetheless:
-##     * add a exec_depend tag for "message_runtime"
-## * In this file (CMakeLists.txt):
-##   * add "message_generation" and every package in MSG_DEP_SET to
-##     find_package(catkin REQUIRED COMPONENTS ...)
-##   * add "message_runtime" and every package in MSG_DEP_SET to
-##     catkin_package(CATKIN_DEPENDS ...)
-##   * uncomment the add_*_files sections below as needed
-##     and list every .msg/.srv/.action file to be processed
-##   * uncomment the generate_messages entry below
-##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
-
-## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
-
-## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
-#   Service2.srv
-# )
-
-## Generate actions in the 'action' folder
-# add_action_files(
-#   FILES
-#   Action1.action
-#   Action2.action
-# )
-
-## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   nav_msgs#   std_msgs#   trajectory_msgs
-# )
-
-################################################
-## Declare ROS dynamic reconfigure parameters ##
-################################################
-
-## To declare and build dynamic reconfigure parameters within this
-## package, follow these steps:
-## * In the file package.xml:
-##   * add a build_depend and a exec_depend tag for "dynamic_reconfigure"
-## * In this file (CMakeLists.txt):
-##   * add "dynamic_reconfigure" to
-##     find_package(catkin REQUIRED COMPONENTS ...)
-##   * uncomment the "generate_dynamic_reconfigure_options" section below
-##     and list every .cfg file to be processed
-
-## Generate dynamic reconfigure parameters in the 'cfg' folder
-# generate_dynamic_reconfigure_options(
-#   cfg/DynReconf1.cfg
-#   cfg/DynReconf2.cfg
-# )
-
-###################################
-## catkin specific configuration ##
-###################################
-## The catkin_package macro generates cmake config files for your package
-## Declare things to be passed to dependent projects
-## INCLUDE_DIRS: uncomment this if your package contains header files
-## LIBRARIES: libraries you create in this project that dependent projects also need
-## CATKIN_DEPENDS: catkin_packages dependent projects also need
-## DEPENDS: system dependencies of this project that dependent projects also need
-catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES rfn3d
-#  CATKIN_DEPENDS nav_msgs roscpp rospy std_msgs trajectory_msgs
-#  DEPENDS system_lib
-)
-
-###########
-## Build ##
-###########
-
-## Specify additional locations of header files
-## Your package locations should be listed before other locations
-include_directories(
-# include
-  ${fcl_INCLUDE_DIRS}
-  ${PCL_INCLUDE_DIRS}
-  ${OMPL_INCLUDE_DIRS}
-  ${catkin_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIRS}
-  ${GUROBI_INCLUDE_DIRS}
-  ${OCTOMAP_INCLUDE_DIRS}
-  ${PROJECT_SOURCE_DIR}/include
-)
-
-add_executable(planner 
-  src/planner.cpp 
-  src/planner_node.cpp 
+########################
+# ROS-free core library
+########################
+add_library(planner_lib
+  src/planner_core.cpp
   src/ompl_rrt_traj.cpp
   src/solver.cpp
 )
-target_link_libraries(planner
-  ${catkin_LIBRARIES} 
+set_target_properties(planner_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(planner_lib PUBLIC
+  include
+  ${fcl_INCLUDE_DIRS}
+  ${OMPL_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
+  ${GUROBI_INCLUDE_DIRS}
+  ${OCTOMAP_INCLUDE_DIRS}
+)
+target_link_libraries(planner_lib
   ${OCTOMAP_LIBRARIES}
   ${fcl_LIBRARIES}
   ${OMPL_LIBRARIES}
-  ${PCL_LIBRARIES}
   ${GUROBI_LIBRARIES}
   Eigen3::Eigen
 )
 
-add_executable(voxblox_rrt 
-  src/voxblox_rrt.cpp
-)
-target_link_libraries(voxblox_rrt
-  ${catkin_LIBRARIES} 
-  ${OMPL_LIBRARIES}
-  ${PCL_LIBRARIES}
-  Eigen3::Eigen
-)
+########################
+# ROS 1 wrapper
+########################
+if(ROS_VERSION EQUAL 1)
+  find_package(catkin REQUIRED COMPONENTS
+    roscpp
+    nav_msgs
+    std_msgs
+    geometry_msgs
+    trajectory_msgs
+    visualization_msgs
+    octomap_msgs
+  )
+  catkin_package()
+
+  add_executable(planner
+    planner_ros1/src/planner_ros1.cpp
+    planner_ros1/src/planner_ros1_node.cpp
+  )
+  target_include_directories(planner PRIVATE
+    planner_ros1/include
+    ${catkin_INCLUDE_DIRS}
+  )
+  target_link_libraries(planner
+    planner_lib
+    ${catkin_LIBRARIES}
+  )
+
+########################
+# ROS 2 wrapper
+########################
+elseif(ROS_VERSION EQUAL 2)
+  find_package(ament_cmake REQUIRED)
+  find_package(rclcpp REQUIRED)
+  find_package(nav_msgs REQUIRED)
+  find_package(std_msgs REQUIRED)
+  find_package(geometry_msgs REQUIRED)
+  find_package(sensor_msgs REQUIRED)
+  find_package(trajectory_msgs REQUIRED)
+  find_package(visualization_msgs REQUIRED)
+  find_package(tf2 REQUIRED)
+  find_package(tf2_ros REQUIRED)
+
+  # The ROS2 node sources don't exist yet; guard so the package still configures.
+  if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/planner_ros2/src/planner_ros2_node.cpp")
+    add_executable(planner_node
+      planner_ros2/src/planner_ros2.cpp
+      planner_ros2/src/planner_ros2_node.cpp
+    )
+    target_include_directories(planner_node PRIVATE planner_ros2/include)
+    target_link_libraries(planner_node planner_lib)
+    ament_target_dependencies(planner_node
+      rclcpp nav_msgs std_msgs geometry_msgs sensor_msgs
+      trajectory_msgs visualization_msgs tf2 tf2_ros
+    )
+    install(TARGETS planner_node DESTINATION lib/${PROJECT_NAME})
+    install(DIRECTORY planner_ros2/launch DESTINATION share/${PROJECT_NAME})
+  endif()
+
+  ament_package()
+endif()

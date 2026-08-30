@@ -1,0 +1,45 @@
+# ROS1 (Noetic) image for rfn3d. rfn3d is a blended ROS1/ROS2 catkin/ament
+# package that won't build natively on macOS; this builds the ROS1 `planner`
+# target (and the ROS-free planner_lib core) in a Linux container and runs it.
+# `docker compose build` fails loudly if it doesn't compile; `up`/`run` launches
+# the node (see docker/entrypoint.ros1.sh). A ROS2 image lands separately.
+#
+# Pinned to linux/amd64: Gurobi ships x86-64 Linux libraries only, so on Apple
+# Silicon this builds under emulation (slower, but a one-time cached build).
+FROM --platform=linux/amd64 ros:noetic-ros-base
+
+SHELL ["/bin/bash", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake git ca-certificates wget \
+      libeigen3-dev libfcl-dev libccd-dev \
+      ros-noetic-ompl \
+      ros-noetic-octomap ros-noetic-octomap-msgs \
+      ros-noetic-nav-msgs ros-noetic-geometry-msgs ros-noetic-std-msgs \
+      ros-noetic-trajectory-msgs ros-noetic-visualization-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Gurobi — needed only to COMPILE and LINK (headers + libs). Gurobi checks a
+# license at RUNTIME when GRBEnv is created, never while linking.
+ARG GUROBI_DIR=gurobi1103
+ARG GUROBI_TARBALL=gurobi11.0.3_linux64.tar.gz
+RUN wget -q "https://packages.gurobi.com/11.0/${GUROBI_TARBALL}" -O /tmp/g.tgz \
+    && tar -xzf /tmp/g.tgz -C /opt \
+    && rm /tmp/g.tgz
+ENV GUROBI_HOME=/opt/${GUROBI_DIR}/linux64
+ENV LD_LIBRARY_PATH=${GUROBI_HOME}/lib
+# The shipped libgurobi_c++.a targets an older libstdc++ ABI; rebuild it here.
+RUN cd ${GUROBI_HOME}/src/build && make -j"$(nproc)" \
+    && cp libgurobi_c++.a ${GUROBI_HOME}/lib/
+
+WORKDIR /ws
+COPY . src/rfn3d
+
+RUN source /opt/ros/noetic/setup.bash \
+    && catkin_make -DCMAKE_BUILD_TYPE=Release \
+    && echo "=== rfn3d planner built OK ===" \
+    && ls -la devel/lib/rfn3d/
+
+COPY docker/entrypoint.ros1.sh /entrypoint.ros1.sh
+RUN chmod +x /entrypoint.ros1.sh
+ENTRYPOINT ["/entrypoint.ros1.sh"]
