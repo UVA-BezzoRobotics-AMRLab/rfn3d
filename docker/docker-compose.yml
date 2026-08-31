@@ -1,11 +1,17 @@
-# ROS1 (Noetic) image for rfn3d. macOS can't build this natively.
-#   docker compose -f docker/docker-compose.yml build ros1   # compiles; fails if the branch doesn't build
-#   docker compose -f docker/docker-compose.yml run --rm ros1 # runs the planner node (needs a Gurobi license mounted)
-# A ROS2 (Humble) service will be added alongside this one.
+# Build/run images for rfn3d. macOS can't build this natively.
+#   docker compose -f docker/docker-compose.yml build ros1    # ROS1 (Noetic) compile-check
+#   docker compose -f docker/docker-compose.yml build ros2    # ROS2 (Humble) compile-check
+#   docker compose -f docker/docker-compose.yml run --rm ros2 # runs planner_node (needs a Gurobi license mounted)
 services:
-  ros1:
+  rfn3d-ros1:
     platform: linux/amd64  # Gurobi is x86-64 only; emulated on Apple Silicon
     build:
       context: ..
       dockerfile: docker/Dockerfile.ros1
     image: rfn3d/ros1:noetic
+  rfn3d-ros2:
+    platform: linux/amd64  # Gurobi is x86-64 only; emulated on Apple Silicon
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ros2
+    image: rfn3d/ros2:humble

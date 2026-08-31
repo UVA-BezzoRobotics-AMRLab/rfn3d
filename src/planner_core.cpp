@@ -1,6 +1,12 @@
 #include <rfn3d/planner_core.h>
 
+#include <cmath>
+
 #include <gcopter/sfc_gen.hpp>
+#include <rfn3d/gcopter_solver.h>
+#ifdef GUROBI_FOUND
+#include <rfn3d/faster_solver.h>
+#endif
 
 namespace
 {
@@ -58,23 +64,21 @@ void PlannerCore::set_params(const planner_params_t &params)
 {
     _params = params;
 
-    double limits[3] = {params.v_max, params.a_max, params.j_max};
-    _solver.setN(params.n_segments);
-    _solver.createVars();
-    _solver.setDC(params.solver_dc);
-    _solver.setBounds(limits);
-    _solver.setForceFinalConstraint(params.force_final_constraint);
-    _solver.setFactorInitialAndFinalAndIncrement(params.factor_init, params.factor_final,
-                                                 params.factor_increment);
-    _solver.setThreads(params.n_threads);
-    _solver.setWMax(params.w_max);
-    _solver.setVerbose(params.solver_verbose ? 1 : 0);
-    _solver.setUseMinvo(params.use_minvo);
-}
+#ifdef GUROBI_FOUND
+    if (params.solver == "faster")
+    {
+        _solver = std::make_unique<FasterSolver>();
+    }
+    else
+    {
+        _solver = std::make_unique<GcopterSolver>();
+    }
+#else
+    // Gurobi not built in; gcopter is the only available back-end.
+    _solver = std::make_unique<GcopterSolver>();
+#endif
 
-void PlannerCore::set_collision_map(std::shared_ptr<fcl::CollisionGeometry> map)
-{
-    _rrt->updateMap(map);
+    _solver->set_params(params);
 }
 
 PlannerStatus PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
@@ -86,6 +90,32 @@ PlannerStatus PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
     {
         return PlannerStatus::EMPTY_CLOUD;
     }
+
+    // Build a dilated occupancy map from the cloud for RRT collision checks.
+    // The grid spans the cloud's bounding box padded by the robot radius, and
+    // dilation by that radius means a free query() already clears the robot.
+    Eigen::Vector3d lo = cloud.front();
+    Eigen::Vector3d hi = cloud.front();
+    for (const Eigen::Vector3d &p : cloud)
+    {
+        lo = lo.cwiseMin(p);
+        hi = hi.cwiseMax(p);
+    }
+
+    const double scale = _params.map_resolution;
+    const double margin = _params.robot_radius + scale;
+    lo.array() -= margin;
+    hi.array() += margin;
+
+    const Eigen::Vector3i size =
+        ((hi - lo) / scale).array().ceil().cast<int>().matrix().cwiseMax(Eigen::Vector3i::Ones());
+    _vmap = voxel_map::VoxelMap(size, lo, scale);
+    for (const Eigen::Vector3d &p : cloud)
+    {
+        _vmap.setOccupied(p);
+    }
+    _vmap.dilate(static_cast<int>(std::ceil(_params.robot_radius / scale)));
+    _rrt->updateMap(&_vmap);
 
     // RRT* front-end.
     _rrt->setStart(initialPVAJ.col(0));
@@ -126,46 +156,19 @@ PlannerStatus PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
         }
     }
 
-    // FASTER minimum-jerk trajectory inside the corridor.
-    state x0;
-    x0.setPos(initialPVAJ(0, 0), initialPVAJ(1, 0), initialPVAJ(2, 0));
-    x0.setVel(initialPVAJ(0, 1), initialPVAJ(1, 1), initialPVAJ(2, 1));
-    x0.setAccel(initialPVAJ(0, 2), initialPVAJ(1, 2), initialPVAJ(2, 2));
-    x0.setJerk(initialPVAJ(0, 3), initialPVAJ(1, 3), initialPVAJ(2, 3));
+    // Trajectory generation inside the corridor (pluggable back-end).
+    Eigen::Matrix<double, 3, 4> finalPVAJ;
+    finalPVAJ.col(0) = final_pos;
+    finalPVAJ.col(1).setZero();
+    finalPVAJ.col(2).setZero();
+    finalPVAJ.col(3).setZero();
 
-    state xf;
-    xf.setPos(final_pos);
-    xf.setVel(0, 0, 0);
-    xf.setAccel(0, 0, 0);
-    xf.setJerk(0, 0, 0);
-
-    _solver.setX0(x0);
-    _solver.setXf(xf);
-    _solver.setPolytopes(_hpolys);
-
-    if (!_solver.genNewTraj())
+    if (!_solver->solve(initialPVAJ, finalPVAJ, _hpolys))
     {
         return PlannerStatus::SOLVER_FAILED;
     }
-    _solver.fillX();
 
-    // Sample the solver trajectory into ROS-free states at traj_dt intervals.
-    _traj.clear();
-    double next_t = 0.0;
-    for (const state &x : _solver.X_temp_)
-    {
-        if (x.t >= next_t)
-        {
-            rfn_state_t s;
-            s.pos = x.pos;
-            s.vel = x.vel;
-            s.accel = x.accel;
-            s.jerk = x.jerk;
-            s.t = x.t;
-            _traj.push_back(s);
-            next_t += _params.traj_dt;
-        }
-    }
+    _traj = _solver->get_trajectory();
 
     return PlannerStatus::SUCCESS;
 }
