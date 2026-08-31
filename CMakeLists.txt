@@ -109,7 +109,6 @@ elseif(ROS_VERSION EQUAL 2)
   find_package(sensor_msgs REQUIRED)
   find_package(trajectory_msgs REQUIRED)
   find_package(visualization_msgs REQUIRED)
-  find_package(octomap_msgs REQUIRED)
   find_package(tf2 REQUIRED)
   find_package(tf2_ros REQUIRED)
 
@@ -119,12 +118,11 @@ elseif(ROS_VERSION EQUAL 2)
   )
   target_include_directories(planner_node PRIVATE
     planner_ros2/include
-    ${OCTOMAP_INCLUDE_DIRS}
   )
-  target_link_libraries(planner_node planner_lib ${OCTOMAP_LIBRARIES})
+  target_link_libraries(planner_node planner_lib)
   ament_target_dependencies(planner_node
     rclcpp nav_msgs std_msgs geometry_msgs sensor_msgs
-    trajectory_msgs visualization_msgs octomap_msgs tf2 tf2_ros
+    trajectory_msgs visualization_msgs tf2 tf2_ros
   )
   install(TARGETS planner_node DESTINATION lib/${PROJECT_NAME})
   install(DIRECTORY planner_ros2/launch DESTINATION share/${PROJECT_NAME})

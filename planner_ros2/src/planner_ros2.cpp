@@ -2,9 +2,11 @@
 #include <rfn3d/utils.h>
 
 #include <chrono>
+#include <cmath>
 #include <functional>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
@@ -12,6 +14,10 @@ using std::placeholders::_1;
 PlannerROS2::PlannerROS2() : Node("planner_node")
 {
     _core.set_params(_params);
+
+    // Topics are set by launch remappings; the frame is a parameter (a TF frame is not a
+    // topic and can't be remapped), so let launch/params override the "world" default.
+    _frame_id = this->declare_parameter<std::string>("frame_id", _frame_id);
 
     // These mirror the core's params, so derive them rather than duplicating.
     _traj_dt = _params.traj_dt;
@@ -24,8 +30,8 @@ PlannerROS2::PlannerROS2() : Node("planner_node")
 
     _odom_sub = create_subscription<nav_msgs::msg::Odometry>(
         "/firefly/ground_truth/odometry", 10, std::bind(&PlannerROS2::odom_cb, this, _1));
-    _map_sub = create_subscription<octomap_msgs::msg::Octomap>(
-        "/octomap_binary", 10, std::bind(&PlannerROS2::map_cb, this, _1));
+    _cloud_sub = create_subscription<sensor_msgs::msg::PointCloud2>(
+        "/cloud", 10, std::bind(&PlannerROS2::cloud_cb, this, _1));
     _goal_sub = create_subscription<geometry_msgs::msg::PointStamped>(
         "/clicked_point", 10, std::bind(&PlannerROS2::goal_cb, this, _1));
 
@@ -59,34 +65,50 @@ void PlannerROS2::odom_cb(const nav_msgs::msg::Odometry::SharedPtr msg)
     }
 }
 
-void PlannerROS2::map_cb(const octomap_msgs::msg::Octomap::SharedPtr msg)
+void PlannerROS2::cloud_cb(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
-    _octree = std::shared_ptr<octomap::OcTree>(dynamic_cast<octomap::OcTree *>(octomap_msgs::msgToMap(*msg)));
+    // Keep only points within a local box around the drone; this cropped cloud is the
+    // obstacle source for corridor generation (sfc_gen::convexCover). Points are assumed
+    // to already be in _frame_id (world) — the sim publishes them there; a real sensor
+    // stream would need a TF into world first.
+    const double half = _params.cloud_crop / 2.0;
 
-    get_cloud_from_octree(_odom, Eigen::Vector3d(_params.cloud_crop, _params.cloud_crop, _params.cloud_crop));
-    _map_init = true;
+    std::vector<Eigen::Vector3d> cloud;
+    cloud.reserve(static_cast<size_t>(msg->width) * msg->height);
+
+    sensor_msgs::PointCloud2ConstIterator<float> it_x(*msg, "x");
+    sensor_msgs::PointCloud2ConstIterator<float> it_y(*msg, "y");
+    sensor_msgs::PointCloud2ConstIterator<float> it_z(*msg, "z");
+
+    for (; it_x != it_x.end(); ++it_x, ++it_y, ++it_z)
+    {
+        const double x = *it_x;
+        const double y = *it_y;
+        const double z = *it_z;
+
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+        {
+            continue;
+        }
+
+        if (std::abs(x - _odom(0)) > half ||
+            std::abs(y - _odom(1)) > half ||
+            std::abs(z - _odom(2)) > half)
+        {
+            continue;
+        }
+
+        cloud.emplace_back(x, y, z);
+    }
+
+    _cloud = std::move(cloud);
+    _cloud_init = true;
 }
 
 void PlannerROS2::goal_cb(const geometry_msgs::msg::PointStamped::SharedPtr msg)
 {
     _goal = Eigen::Vector3d(msg->point.x, msg->point.y, msg->point.z + 2.0);
     _is_goal_set = true;
-}
-
-void PlannerROS2::get_cloud_from_octree(const Eigen::Vector3d &origin, const Eigen::Vector3d &size)
-{
-    octomap::point3d min(origin[0] - size[0] / 2, origin[1] - size[1] / 2, origin[2] - size[2] / 2);
-    octomap::point3d max(origin[0] + size[0] / 2, origin[1] + size[1] / 2, origin[2] + size[2] / 2);
-
-    _cloud.clear();
-    for (octomap::OcTree::leaf_bbx_iterator it = _octree->begin_leafs_bbx(min, max), end = _octree->end_leafs_bbx();
-         it != end; ++it)
-    {
-        if (_octree->isNodeOccupied(*it))
-        {
-            _cloud.push_back(Eigen::Vector3d(it.getX(), it.getY(), it.getZ()));
-        }
-    }
 }
 
 void PlannerROS2::trail_loop()
@@ -107,7 +129,7 @@ void PlannerROS2::trail_loop()
 
 void PlannerROS2::plan_loop()
 {
-    if (!_odom_init || !_map_init || !_is_goal_set)
+    if (!_odom_init || !_cloud_init || !_is_goal_set)
     {
         return;
     }

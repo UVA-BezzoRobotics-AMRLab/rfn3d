@@ -3,13 +3,13 @@
 #   docker compose -f docker/docker-compose.yml build ros2    # ROS2 (Humble) compile-check
 #   docker compose -f docker/docker-compose.yml run --rm ros2 # runs planner_node (needs a Gurobi license mounted)
 services:
-  ros1:
+  rfn3d-ros1:
     platform: linux/amd64  # Gurobi is x86-64 only; emulated on Apple Silicon
     build:
       context: ..
       dockerfile: docker/Dockerfile.ros1
     image: rfn3d/ros1:noetic
-  ros2:
+  rfn3d-ros2:
     platform: linux/amd64  # Gurobi is x86-64 only; emulated on Apple Silicon
     build:
       context: ..

@@ -9,12 +9,10 @@
 
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <trajectory_msgs/msg/multi_dof_joint_trajectory.hpp>
-
-#include <octomap_msgs/msg/octomap.hpp>
-#include <octomap_msgs/conversions.h>
 
 #include <rfn3d/planner_core.h>
 #include <rfn3d/rfn_types.h>
@@ -28,7 +26,7 @@ public:
     PlannerROS2();
 
     void odom_cb(const nav_msgs::msg::Odometry::SharedPtr msg);
-    void map_cb(const octomap_msgs::msg::Octomap::SharedPtr msg);
+    void cloud_cb(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void goal_cb(const geometry_msgs::msg::PointStamped::SharedPtr msg);
 
     void plan_loop();
@@ -37,14 +35,9 @@ public:
     bool plan(bool is_failsafe = false);
 
 private:
-    // Pull the occupied cells of the current octree, within `size` box around
-    // origin, into _cloud (the corridor obstacle set).
-    void get_cloud_from_octree(const Eigen::Vector3d &origin, const Eigen::Vector3d &size);
-
     PlannerCore _core;
     planner_params_t _params;
 
-    std::shared_ptr<octomap::OcTree> _octree;
     std::vector<Eigen::Vector3d> _cloud;
     std::vector<Eigen::Vector3d> _jerks;
 
@@ -56,7 +49,7 @@ private:
     std::string _frame_id = "world";
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr _odom_sub;
-    rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr _map_sub;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr _cloud_sub;
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr _goal_sub;
 
     rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr _ref_pub;
@@ -78,7 +71,7 @@ private:
     int _count = 0;
     int _failsafe_count;      // set from params in the ctor
 
-    bool _map_init = false;
+    bool _cloud_init = false;
     bool _odom_init = false;
     bool _is_goal_set = false;
 };
