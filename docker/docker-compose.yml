@@ -1,11 +1,39 @@
-# ROS1 (Noetic) image for rfn3d. macOS can't build this natively.
-#   docker compose -f docker/docker-compose.yml build ros1   # compiles; fails if the branch doesn't build
-#   docker compose -f docker/docker-compose.yml run --rm ros1 # runs the planner node (needs a Gurobi license mounted)
-# A ROS2 (Humble) service will be added alongside this one.
+# Full ROS2 stack: volasim bridge/controller + rfn3d planner.
+# Sim runs on the host; everything else runs here.
+#
+#   docker compose -f docker/docker-compose.yml up --build
+#   docker compose -f docker/docker-compose.yml build   # rebuild only
+#
+# The sim must already be running on the host (./build/volasim).
 services:
-  ros1:
-    platform: linux/amd64  # Gurobi is x86-64 only; emulated on Apple Silicon
+  # volasim-ros2:
+  #   platform: linux/amd64
+  #   build:
+  #     context: ../../volasim
+  #     dockerfile: docker/Dockerfile.ros2
+  #   image: volasim/ros2:humble
+  #   environment:
+  #     - VOLASIM_SIM_HOST=host.docker.internal
+  #     - AUTO_TAKEOFF=${AUTO_TAKEOFF:-1}
+  #     - RECORD=${RECORD:-0}
+  #     - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+  #   ports:
+  #     - "5557:5557"
+  #   volumes:
+  #     - ../../volasim/bags:/ws/bags
+  #     - /tmp/volasim_cloud:/tmp/volasim_cloud
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+  #   restart: unless-stopped
+
+  rfn3d-ros2:
+    platform: linux/amd64
     build:
       context: ..
-      dockerfile: docker/Dockerfile.ros1
-    image: rfn3d/ros1:noetic
+      dockerfile: docker/Dockerfile.ros2
+    image: rfn3d/ros2:humble
+    environment:
+      - INITIAL_GOAL=${INITIAL_GOAL:-10 2 1}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    # depends_on:
+    #   - volasim-ros2

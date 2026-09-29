@@ -1,6 +1,9 @@
 #ifndef RFN3D_RFN_TYPES_H
 #define RFN3D_RFN_TYPES_H
 
+#include <string>
+#include <string_view>
+
 #include <Eigen/Core>
 
 // ROS-free types shared by the planner core and both ROS wrappers.
@@ -17,9 +20,13 @@ struct rfn_state_t {
 // Tunables for the planning pipeline. Defaults mirror the values that were
 // hard-coded in the original ROS1 planner.
 struct planner_params_t {
+  // trajectory-generation back-end: "gcopter" (default, license-free) or
+  // "faster" (Gurobi MIQP; only available when built with Gurobi).
+  std::string solver = "gcopter";
+
   // receding horizon / trajectory sampling
-  double traj_dt = 0.05;            // trajectory sample period (s)
-  double max_dist_horizon = 10.0;   // upper bound on the receding horizon (m)
+  double traj_dt = 0.05;          // trajectory sample period (s)
+  double max_dist_horizon = 10.0; // upper bound on the receding horizon (m)
   int failsafe_count = 4;
 
   // obstacle cloud crop: full box side length around odom (m)
@@ -27,8 +34,8 @@ struct planner_params_t {
 
   // RRT* front-end
   double rrt_range = 2.5;
-  double robot_radius = 0.5;
-  double map_resolution = 0.2;
+  double robot_radius = 0.25;
+  double map_resolution = 0.1;
   Eigen::Vector3d bounds_min = Eigen::Vector3d(-100, -100, -5);
   Eigen::Vector3d bounds_max = Eigen::Vector3d(100, 100, 100);
 
@@ -52,8 +59,10 @@ struct planner_params_t {
   bool solver_verbose = false;
 };
 
+namespace plan_metadata {
+
 // Outcome of a PlannerCore::plan() call.
-enum class PlannerStatus {
+enum class Status {
   SUCCESS = 0,
   EMPTY_CLOUD,
   RRT_FAILED,
@@ -61,5 +70,24 @@ enum class PlannerStatus {
   CORRIDOR_NO_OVERLAP,
   SOLVER_FAILED,
 };
+
+constexpr std::string_view to_string(Status status) {
+  switch (status) {
+  case Status::SUCCESS:
+    return "Success";
+  case Status::EMPTY_CLOUD:
+    return "Empty Pointcloud";
+  case Status::RRT_FAILED:
+    return "RRT failure";
+  case Status::CORRIDOR_FAILED:
+    return "Corridor generation failed";
+  case Status::CORRIDOR_NO_OVERLAP:
+    return "Corridor did not overlap";
+  case Status::SOLVER_FAILED:
+    return "Solver failed";
+  }
+}
+
+} // namespace plan_metadata
 
 #endif // RFN3D_RFN_TYPES_H

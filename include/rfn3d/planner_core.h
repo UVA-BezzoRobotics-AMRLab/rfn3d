@@ -5,11 +5,11 @@
 #include <vector>
 
 #include <Eigen/Core>
-#include <fcl/collision.h>
 
-#include <faster/solver.hpp>
+#include <gcopter/voxel_map.hpp>
 #include <rfn3d/ompl_rrt_traj.h>
 #include <rfn3d/rfn_types.h>
+#include <rfn3d/solver_base.h>
 
 // ROS-free planning pipeline: RRT* front-end -> safe flight corridor ->
 // FASTER (Gurobi) minimum-jerk trajectory. Owns no ROS state; the ROS1/ROS2
@@ -22,16 +22,13 @@ public:
   // Configure the RRT front-end and the FASTER solver from params.
   void set_params(const planner_params_t &params);
 
-  // Collision geometry for the RRT validity check (an fcl::OcTree today).
-  void set_collision_map(std::shared_ptr<fcl::CollisionGeometry> map);
-
   // Plan a fresh trajectory from initialPVAJ (columns: pos, vel, accel, jerk)
   // to goal, keeping the corridor clear of `cloud` and truncating the RRT path
   // to `horizon` metres. Results are read back through the getters below.
-  PlannerStatus plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
-                     const Eigen::Vector3d &goal,
-                     const std::vector<Eigen::Vector3d> &cloud,
-                     double horizon);
+  plan_metadata::Status plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
+                             const Eigen::Vector3d &goal,
+                             const std::vector<Eigen::Vector3d> &cloud,
+                             double horizon);
 
   // Return by value: a subsequent plan() overwrites these members, so handing
   // out references would leave callers holding invalidated data.
@@ -41,8 +38,12 @@ public:
 
 private:
   std::unique_ptr<RRTPlanner> _rrt;
-  SolverGurobi _solver;
+  std::unique_ptr<SolverBase> _solver;
   planner_params_t _params;
+
+  // Dilated occupancy map built from the obstacle cloud each plan(); the RRT
+  // holds a non-owning pointer to it, so it must stay alive here.
+  voxel_map::VoxelMap _vmap;
 
   std::vector<rfn_state_t> _traj;
   std::vector<Eigen::MatrixX4d> _hpolys;

@@ -1,6 +1,12 @@
 #include <rfn3d/planner_core.h>
 
+#include <cmath>
+
 #include <gcopter/sfc_gen.hpp>
+#include <rfn3d/gcopter_solver.h>
+#ifdef GUROBI_FOUND
+#include <rfn3d/faster_solver.h>
+#endif
 
 namespace
 {
@@ -58,114 +64,149 @@ void PlannerCore::set_params(const planner_params_t &params)
 {
     _params = params;
 
-    double limits[3] = {params.v_max, params.a_max, params.j_max};
-    _solver.setN(params.n_segments);
-    _solver.createVars();
-    _solver.setDC(params.solver_dc);
-    _solver.setBounds(limits);
-    _solver.setForceFinalConstraint(params.force_final_constraint);
-    _solver.setFactorInitialAndFinalAndIncrement(params.factor_init, params.factor_final,
-                                                 params.factor_increment);
-    _solver.setThreads(params.n_threads);
-    _solver.setWMax(params.w_max);
-    _solver.setVerbose(params.solver_verbose ? 1 : 0);
-    _solver.setUseMinvo(params.use_minvo);
+#ifdef GUROBI_FOUND
+    if (params.solver == "faster")
+    {
+        _solver = std::make_unique<FasterSolver>();
+    }
+    else
+    {
+        _solver = std::make_unique<GcopterSolver>();
+    }
+#else
+    // Gurobi not built in; gcopter is the only available back-end.
+    _solver = std::make_unique<GcopterSolver>();
+#endif
+
+    _solver->set_params(params);
 }
 
-void PlannerCore::set_collision_map(std::shared_ptr<fcl::CollisionGeometry> map)
+plan_metadata::Status PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
+                                        const Eigen::Vector3d &goal,
+                                        const std::vector<Eigen::Vector3d> &cloud,
+                                        double horizon)
 {
-    _rrt->updateMap(map);
-}
-
-PlannerStatus PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
-                                const Eigen::Vector3d &goal,
-                                const std::vector<Eigen::Vector3d> &cloud,
-                                double horizon)
-{
-    if (cloud.empty())
-    {
-        return PlannerStatus::EMPTY_CLOUD;
-    }
-
-    // RRT* front-end.
-    _rrt->setStart(initialPVAJ.col(0));
-    _rrt->setGoal(goal);
-
-    std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> wpts;
-    ob::PlannerStatus status = _rrt->solve(wpts);
-    if (status != ob::PlannerStatus::EXACT_SOLUTION &&
-        status != ob::PlannerStatus::APPROXIMATE_SOLUTION)
-    {
-        return PlannerStatus::RRT_FAILED;
-    }
-
-    std::vector<Eigen::Vector3d> path(wpts.begin(), wpts.end());
-    _rrt_path = path;
+    using Status = plan_metadata::Status;
 
     Eigen::Vector3d final_pos = goal;
-    std::vector<Eigen::Vector3d> truncated;
-    if (truncate_path(path, truncated, horizon))
+
+    if (cloud.empty())
     {
-        path = truncated;
+        // No obstacles — straight line to goal, single bounding-box corridor.
+        _rrt_path = {initialPVAJ.col(0), goal};
+
+        std::vector<Eigen::Vector3d> path = _rrt_path;
+        std::vector<Eigen::Vector3d> truncated;
+        if (truncate_path(path, truncated, horizon))
+        {
+            path = truncated;
+            final_pos = path.back();
+        }
+
+        const double half = _params.cloud_crop / 2.0;
+        Eigen::Vector3d lo = path.front().cwiseMin(path.back()).array() - half;
+        Eigen::Vector3d hi = path.front().cwiseMax(path.back()).array() + half;
+
+        // 6 half-planes: each row is [nx, ny, nz, d] with n·x + d <= 0.
+        Eigen::MatrixX4d box(6, 4);
+        box.setZero();
+        box(0, 0) =  1.0; box(0, 3) = -hi.x();  // x <= hi.x
+        box(1, 0) = -1.0; box(1, 3) =  lo.x();   // x >= lo.x
+        box(2, 1) =  1.0; box(2, 3) = -hi.y();
+        box(3, 1) = -1.0; box(3, 3) =  lo.y();
+        box(4, 2) =  1.0; box(4, 3) = -hi.z();
+        box(5, 2) = -1.0; box(5, 3) =  lo.z();
+
+        _hpolys = {box};
+    }
+    else
+    {
+        // Build a dilated occupancy map from the cloud for RRT collision checks.
+        // The grid spans the cloud's bounding box padded by the robot radius, and
+        // dilation by that radius means a free query() already clears the robot.
+        Eigen::Vector3d lo = cloud.front();
+        Eigen::Vector3d hi = cloud.front();
+        for (const Eigen::Vector3d &p : cloud)
+        {
+            lo = lo.cwiseMin(p);
+            hi = hi.cwiseMax(p);
+        }
+
+        const double scale = _params.map_resolution;
+        const double margin = _params.robot_radius + scale;
+        lo.array() -= margin;
+        hi.array() += margin;
+
+        const Eigen::Vector3i size =
+            ((hi - lo) / scale).array().ceil().cast<int>().matrix().cwiseMax(Eigen::Vector3i::Ones());
+        _vmap = voxel_map::VoxelMap(size, lo, scale);
+        for (const Eigen::Vector3d &p : cloud)
+        {
+            _vmap.setOccupied(p);
+        }
+        _vmap.dilate(static_cast<int>(std::ceil(_params.robot_radius / scale)));
+        _vmap.clearDilated(initialPVAJ.col(0), _params.robot_radius);
+        _rrt->updateMap(&_vmap);
+
+        // RRT* front-end.
+        _rrt->setStart(initialPVAJ.col(0));
+        _rrt->setGoal(goal);
+
+        std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> wpts;
+        ob::PlannerStatus status = _rrt->solve(wpts);
+        if (status != ob::PlannerStatus::EXACT_SOLUTION &&
+            status != ob::PlannerStatus::APPROXIMATE_SOLUTION)
+        {
+            return Status::RRT_FAILED;
+        }
+
+        std::vector<Eigen::Vector3d> path(wpts.begin(), wpts.end());
+        _rrt_path = path;
+
+        std::vector<Eigen::Vector3d> truncated;
+        if (truncate_path(path, truncated, horizon))
+        {
+            path = truncated;
+        }
+        // An approximate RRT solution stops short of the goal, and the corridor
+        // only covers the path; ending at the goal would leave the corridor, and
+        // the solver's soft corridor penalty lets that cut through obstacles.
         final_pos = path.back();
-    }
 
-    // Safe flight corridor from the raw obstacle cloud.
-    _hpolys.clear();
-    if (!sfc_gen::convexCover(path, cloud, _params.bounds_min, _params.bounds_max,
-                              _params.corridor_progress, _params.corridor_range, _hpolys))
-    {
-        return PlannerStatus::CORRIDOR_FAILED;
-    }
+        // Corridor from the dilated map's surface, not the raw cloud: raw points
+        // leave no room for the robot, so the trajectory could graze obstacles.
+        std::vector<Eigen::Vector3d> surf;
+        _vmap.getSurf(surf);
 
-    for (size_t p = 0; p + 1 < _hpolys.size(); ++p)
-    {
-        if (!geo_utils::overlap(_hpolys[p], _hpolys[p + 1]))
+        _hpolys.clear();
+        if (!sfc_gen::convexCover(path, surf, _params.bounds_min, _params.bounds_max,
+                                  _params.corridor_progress, _params.corridor_range, _hpolys))
         {
-            return PlannerStatus::CORRIDOR_NO_OVERLAP;
+            return Status::CORRIDOR_FAILED;
+        }
+
+        for (size_t p = 0; p + 1 < _hpolys.size(); ++p)
+        {
+            if (!geo_utils::overlap(_hpolys[p], _hpolys[p + 1]))
+            {
+                return Status::CORRIDOR_NO_OVERLAP;
+            }
         }
     }
 
-    // FASTER minimum-jerk trajectory inside the corridor.
-    state x0;
-    x0.setPos(initialPVAJ(0, 0), initialPVAJ(1, 0), initialPVAJ(2, 0));
-    x0.setVel(initialPVAJ(0, 1), initialPVAJ(1, 1), initialPVAJ(2, 1));
-    x0.setAccel(initialPVAJ(0, 2), initialPVAJ(1, 2), initialPVAJ(2, 2));
-    x0.setJerk(initialPVAJ(0, 3), initialPVAJ(1, 3), initialPVAJ(2, 3));
+    // Trajectory generation inside the corridor (pluggable back-end).
+    Eigen::Matrix<double, 3, 4> finalPVAJ;
+    finalPVAJ.col(0) = final_pos;
+    finalPVAJ.col(1).setZero();
+    finalPVAJ.col(2).setZero();
+    finalPVAJ.col(3).setZero();
 
-    state xf;
-    xf.setPos(final_pos);
-    xf.setVel(0, 0, 0);
-    xf.setAccel(0, 0, 0);
-    xf.setJerk(0, 0, 0);
-
-    _solver.setX0(x0);
-    _solver.setXf(xf);
-    _solver.setPolytopes(_hpolys);
-
-    if (!_solver.genNewTraj())
+    if (!_solver->solve(initialPVAJ, finalPVAJ, _hpolys))
     {
-        return PlannerStatus::SOLVER_FAILED;
-    }
-    _solver.fillX();
-
-    // Sample the solver trajectory into ROS-free states at traj_dt intervals.
-    _traj.clear();
-    double next_t = 0.0;
-    for (const state &x : _solver.X_temp_)
-    {
-        if (x.t >= next_t)
-        {
-            rfn_state_t s;
-            s.pos = x.pos;
-            s.vel = x.vel;
-            s.accel = x.accel;
-            s.jerk = x.jerk;
-            s.t = x.t;
-            _traj.push_back(s);
-            next_t += _params.traj_dt;
-        }
+        return Status::SOLVER_FAILED;
     }
 
-    return PlannerStatus::SUCCESS;
+    _traj = _solver->get_trajectory();
+
+    return Status::SUCCESS;
 }

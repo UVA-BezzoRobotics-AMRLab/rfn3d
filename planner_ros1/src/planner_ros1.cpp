@@ -1,8 +1,6 @@
 #include <rfn3d/planner_ros1.h>
 #include <rfn3d/utils.h>
 
-#include <fcl/octree.h>
-
 PlannerROS1::PlannerROS1(ros::NodeHandle &nh)
 {
     _core.set_params(_params);
@@ -59,8 +57,6 @@ void PlannerROS1::odom_cb(const nav_msgs::Odometry::ConstPtr &msg)
 void PlannerROS1::map_cb(const octomap_msgs::Octomap::ConstPtr &msg)
 {
     _octree = std::shared_ptr<octomap::OcTree>(dynamic_cast<octomap::OcTree *>(octomap_msgs::msgToMap(*msg)));
-    std::shared_ptr<fcl::OcTree> tree = std::make_shared<fcl::OcTree>(_octree);
-    _core.set_collision_map(tree);
 
     get_cloud_from_octree(_odom, Eigen::Vector3d(_params.cloud_crop, _params.cloud_crop, _params.cloud_crop));
     _map_init = true;
@@ -172,10 +168,11 @@ bool PlannerROS1::plan(bool is_failsafe)
         }
     }
 
-    PlannerStatus status = _core.plan(initialPVAJ, _goal, _cloud, _curr_horizon);
-    if (status != PlannerStatus::SUCCESS)
+    auto status = _core.plan(initialPVAJ, _goal, _cloud, _curr_horizon);
+    if (status != plan_metadata::Status::SUCCESS)
     {
-        ROS_ERROR("plan failed (status %d)", static_cast<int>(status));
+        ROS_ERROR("plan failed: %s",
+                  std::string(plan_metadata::to_string(status)).c_str());
         return false;
     }
 

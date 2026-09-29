@@ -1,0 +1,31 @@
+# ROS2 (Humble) image for rfn3d. Builds the ament `planner_node` (and the
+# ROS-free planner_lib core) via colcon and runs it. Uses the license-free
+# gcopter back-end (no Gurobi), and rfn3d no longer depends on FCL, so this
+# builds cleanly on jammy (which ships an incompatible FCL 0.7).
+#
+# Pinned to linux/amd64 for parity with the ROS1 image; runs under emulation on
+# Apple Silicon.
+FROM --platform=linux/amd64 ros:humble-ros-base
+
+SHELL ["/bin/bash", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake git \
+      libeigen3-dev libompl-dev libboost-all-dev \
+      ros-humble-octomap ros-humble-octomap-msgs \
+      ros-humble-nav-msgs ros-humble-geometry-msgs ros-humble-std-msgs \
+      ros-humble-sensor-msgs ros-humble-trajectory-msgs \
+      ros-humble-visualization-msgs ros-humble-tf2 ros-humble-tf2-ros \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ws
+COPY . src/rfn3d
+
+RUN source /opt/ros/humble/setup.bash \
+    && colcon build --packages-select rfn3d --cmake-args -DCMAKE_BUILD_TYPE=Release \
+    && echo "=== rfn3d planner_node built OK ===" \
+    && ls -la install/rfn3d/lib/rfn3d/
+
+COPY docker/entrypoint.ros2.sh /entrypoint.ros2.sh
+RUN chmod +x /entrypoint.ros2.sh
+ENTRYPOINT ["/entrypoint.ros2.sh"]

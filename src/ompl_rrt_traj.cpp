@@ -7,12 +7,6 @@
 // Constructor from https://ompl.kavrakilab.org/optimalPlanningTutorial.html
 RRTPlanner::RRTPlanner()
 {
-	// .2 resolution
-	treeCollision = std::make_shared<fcl::OcTree>(std::make_shared<const octomap::OcTree>(.2));
-
-	// .5 radius for uav
-	uavObject = std::make_shared<fcl::Sphere>(.5);
-
 	// Construct the robot state space in which we're planning. Since we're using
 	// drones, we're planning in a subset of R^3.
 	space = ob::StateSpacePtr(new ob::SE3StateSpace());
@@ -31,6 +25,13 @@ RRTPlanner::RRTPlanner()
 	// Construct a space information instance for this state space
 	si = ob::SpaceInformationPtr(new ob::SpaceInformation(space));
 	si->setStateValidityChecker(std::bind(&RRTPlanner::isValid, this, std::placeholders::_1));
+
+	// Edges are collision-checked at a fraction of the space's max extent. The
+	// 1% default is ~3 m for these bounds, longer than an RRT edge, so edges and
+	// simplifier shortcuts would only be checked at their endpoints and could
+	// pass straight through obstacles. Check at voxel-scale spacing instead.
+	constexpr double kCheckSpacing = 0.05; // m
+	si->setStateValidityCheckingResolution(kCheckSpacing / space->getMaximumExtent());
 	si->setup();
 
 	// Create a problem instance
@@ -93,9 +94,9 @@ ob::PlannerStatus RRTPlanner::solve(std::vector<Eigen::Vector3d, Eigen::aligned_
 	return planStatus;
 }
 
-void RRTPlanner::updateMap(std::shared_ptr<fcl::CollisionGeometry> map)
+void RRTPlanner::updateMap(const voxel_map::VoxelMap *map)
 {
-	treeCollision = map;
+	_map = map;
 }
 
 ob::PlannerStatus RRTPlanner::solveHelper()
