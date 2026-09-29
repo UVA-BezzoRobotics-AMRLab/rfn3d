@@ -25,10 +25,10 @@ public:
   // Plan a fresh trajectory from initialPVAJ (columns: pos, vel, accel, jerk)
   // to goal, keeping the corridor clear of `cloud` and truncating the RRT path
   // to `horizon` metres. Results are read back through the getters below.
-  PlannerStatus plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
-                     const Eigen::Vector3d &goal,
-                     const std::vector<Eigen::Vector3d> &cloud,
-                     double horizon);
+  plan_metadata::Status plan(const Eigen::Matrix<double, 3, 4> &initialPVAJ,
+                             const Eigen::Vector3d &goal,
+                             const std::vector<Eigen::Vector3d> &cloud,
+                             double horizon);
 
   // Return by value: a subsequent plan() overwrites these members, so handing
   // out references would leave callers holding invalidated data.

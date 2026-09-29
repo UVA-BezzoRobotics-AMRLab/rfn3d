@@ -10,9 +10,12 @@ on the command line, e.g.:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, \
+    PythonExpression
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 # (arg name, default = the node's hardcoded topic, description). The default doubles as the
 # remap source, so this list is the single source of truth for both the args and the remaps.
@@ -23,7 +26,7 @@ TOPICS = [
     ("trail_topic", "/trail_viz", "Travelled path out (nav_msgs/Path)"),
     ("ref_topic", "/traj_ref", "Tracking reference out (geometry_msgs/PointStamped)"),
     ("traj_viz_topic", "/traj_viz", "Trajectory markers out (visualization_msgs/MarkerArray)"),
-    ("traj_topic", "/firefly/command/trajectory",
+    ("traj_topic", "/cmd_trajectory",
      "Committed trajectory out (trajectory_msgs/MultiDOFJointTrajectory)"),
 ]
 
@@ -40,6 +43,9 @@ def generate_launch_description():
     ld.add_action(DeclareLaunchArgument(
         "use_sim_time", default_value="false",
         description="Use the /clock topic instead of wall time"))
+    ld.add_action(DeclareLaunchArgument(
+        "initial_goal", default_value="",
+        description="Publish a goal on startup, e.g. '0 0 1'. Empty = no goal."))
 
     planner = Node(
         package="rfn3d",
@@ -53,5 +59,21 @@ def generate_launch_description():
         remappings=[(default, LaunchConfiguration(name)) for name, default, _ in TOPICS],
     )
     ld.add_action(planner)
+
+    goal = LaunchConfiguration("initial_goal")
+    goal_topic = LaunchConfiguration("goal_topic")
+    frame = LaunchConfiguration("frame_id")
+    has_goal = PythonExpression(["'", goal, "' != ''"])
+
+    publish_script = PathJoinSubstitution([
+        FindPackageShare("rfn3d"), "scripts", "publish_goal.py",
+    ])
+
+    ld.add_action(TimerAction(period=3.0, actions=[
+        ExecuteProcess(
+            condition=IfCondition(has_goal),
+            cmd=["python3", publish_script, goal_topic, frame, goal],
+        ),
+    ]))
 
     return ld

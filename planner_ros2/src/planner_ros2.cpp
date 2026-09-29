@@ -195,10 +195,11 @@ bool PlannerROS2::plan(bool is_failsafe)
         }
     }
 
-    PlannerStatus status = _core.plan(initialPVAJ, _goal, _cloud, _curr_horizon);
-    if (status != PlannerStatus::SUCCESS)
+    auto status = _core.plan(initialPVAJ, _goal, _cloud, _curr_horizon);
+    if (status != plan_metadata::Status::SUCCESS)
     {
-        RCLCPP_ERROR(this->get_logger(), "plan failed (status %d)", static_cast<int>(status));
+        RCLCPP_ERROR(this->get_logger(), "plan failed: %s",
+                     std::string(plan_metadata::to_string(status)).c_str());
         return false;
     }
 

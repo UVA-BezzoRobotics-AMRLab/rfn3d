@@ -14,7 +14,9 @@ if(NOT DEFINED ROS_VERSION)
   endif()
 endif()
 
-add_compile_options(-std=c++17 -O3)
+add_compile_options(-O3)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
@@ -126,6 +128,69 @@ elseif(ROS_VERSION EQUAL 2)
   )
   install(TARGETS planner_node DESTINATION lib/${PROJECT_NAME})
   install(DIRECTORY planner_ros2/launch DESTINATION share/${PROJECT_NAME})
+  install(PROGRAMS planner_ros2/scripts/publish_goal.py
+    DESTINATION share/${PROJECT_NAME}/scripts)
 
   ament_package()
+
+########################
+# ZMQ standalone wrapper (no ROS)
+########################
+else()
+  message(STATUS "No ROS found; building ZMQ standalone wrapper")
+
+  include(FetchContent)
+
+  find_package(protobuf CONFIG REQUIRED)
+
+  # Vendor libzmq (static) + cppzmq (header-only), matching volasim's setup.
+  set(BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(BUILD_STATIC ON CACHE BOOL "" FORCE)
+  set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(WITH_PERF_TOOL OFF CACHE BOOL "" FORCE)
+  set(WITH_DOCS OFF CACHE BOOL "" FORCE)
+  set(WITH_TLS OFF CACHE BOOL "" FORCE)
+  set(ENABLE_DRAFTS OFF CACHE BOOL "" FORCE)
+  set(ENABLE_CPACK OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    libzmq
+    GIT_REPOSITORY https://github.com/zeromq/libzmq
+    GIT_TAG        v4.3.5
+  )
+  FetchContent_MakeAvailable(libzmq)
+
+  set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    cppzmq
+    GIT_REPOSITORY https://github.com/zeromq/cppzmq
+    GIT_TAG        v4.10.0
+  )
+  FetchContent_MakeAvailable(cppzmq)
+
+  FetchContent_Declare(
+    volasim_msgs
+    GIT_REPOSITORY git@github.com:nocholasrift/volasim-msgs.git
+    GIT_TAG        main
+  )
+  FetchContent_MakeAvailable(volasim_msgs)
+
+  add_executable(planner_zmq
+    planner_zmq/src/planner_zmq.cpp
+    planner_zmq/src/planner_zmq_node.cpp
+  )
+  target_include_directories(planner_zmq PRIVATE
+    planner_zmq/include
+  )
+  target_link_libraries(planner_zmq
+    planner_lib
+    volasim_msgs
+    cppzmq-static
+  )
+  target_compile_features(planner_zmq PRIVATE cxx_std_17)
+
+  add_executable(send_goal
+    planner_zmq/src/send_goal.cpp
+  )
+  target_link_libraries(send_goal cppzmq-static)
+  target_compile_features(send_goal PRIVATE cxx_std_17)
 endif()

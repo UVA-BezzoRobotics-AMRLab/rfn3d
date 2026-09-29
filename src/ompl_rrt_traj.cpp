@@ -25,6 +25,13 @@ RRTPlanner::RRTPlanner()
 	// Construct a space information instance for this state space
 	si = ob::SpaceInformationPtr(new ob::SpaceInformation(space));
 	si->setStateValidityChecker(std::bind(&RRTPlanner::isValid, this, std::placeholders::_1));
+
+	// Edges are collision-checked at a fraction of the space's max extent. The
+	// 1% default is ~3 m for these bounds, longer than an RRT edge, so edges and
+	// simplifier shortcuts would only be checked at their endpoints and could
+	// pass straight through obstacles. Check at voxel-scale spacing instead.
+	constexpr double kCheckSpacing = 0.05; // m
+	si->setStateValidityCheckingResolution(kCheckSpacing / space->getMaximumExtent());
 	si->setup();
 
 	// Create a problem instance

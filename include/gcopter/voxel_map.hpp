@@ -26,6 +26,8 @@
 #define VOXEL_MAP_HPP
 
 #include "voxel_dilater.hpp"
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <vector>
 #include <Eigen/Eigen>
@@ -159,6 +161,48 @@ namespace voxel_map
 
                 surf = cvec;
             }
+        }
+
+        // Frees dilation, never true obstacles, within radius of pos. The
+        // margin is conservative, so a robot can legitimately sit inside it and
+        // must still be able to plan its way out.
+        inline void clearDilated(const Eigen::Vector3d &pos, const double &radius)
+        {
+            const int r = static_cast<int>(std::ceil(radius / scale));
+            const Eigen::Vector3i center = posD2I(pos);
+            for (int i = -r; i <= r; i++)
+            {
+                for (int j = -r; j <= r; j++)
+                {
+                    for (int k = -r; k <= r; k++)
+                    {
+                        const Eigen::Vector3i id = center + Eigen::Vector3i(i, j, k);
+                        if (id(0) < 0 || id(1) < 0 || id(2) < 0 ||
+                            id(0) >= mapSize(0) || id(1) >= mapSize(1) || id(2) >= mapSize(2))
+                        {
+                            continue;
+                        }
+                        if ((posI2D(id) - pos).norm() > radius)
+                        {
+                            continue;
+                        }
+                        uint8_t &voxel = voxels[id.dot(step)];
+                        if (voxel == Dilated)
+                        {
+                            voxel = Unoccupied;
+                        }
+                    }
+                }
+            }
+
+            // surf ids are stored pre-multiplied by step, hence stepScale.
+            surf.erase(std::remove_if(surf.begin(), surf.end(),
+                                      [&](const Eigen::Vector3i &id)
+                                      {
+                                          const Eigen::Vector3d p = id.cast<double>().cwiseProduct(stepScale) + oc;
+                                          return (p - pos).norm() <= radius;
+                                      }),
+                       surf.end());
         }
 
         inline void getSurfInBox(const Eigen::Vector3i &center,

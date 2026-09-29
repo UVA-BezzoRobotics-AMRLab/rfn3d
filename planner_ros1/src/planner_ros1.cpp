@@ -168,10 +168,11 @@ bool PlannerROS1::plan(bool is_failsafe)
         }
     }
 
-    PlannerStatus status = _core.plan(initialPVAJ, _goal, _cloud, _curr_horizon);
-    if (status != PlannerStatus::SUCCESS)
+    auto status = _core.plan(initialPVAJ, _goal, _cloud, _curr_horizon);
+    if (status != plan_metadata::Status::SUCCESS)
     {
-        ROS_ERROR("plan failed (status %d)", static_cast<int>(status));
+        ROS_ERROR("plan failed: %s",
+                  std::string(plan_metadata::to_string(status)).c_str());
         return false;
     }
 
