@@ -7,7 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
+#include <sstream>
 
 namespace {
 
@@ -37,12 +37,12 @@ void PlannerZmq::setParams(const planner_params_t& params) {
   traj_dt_          = params_.traj_dt;
   max_dist_horizon_ = params_.max_dist_horizon;
   failsafe_count_   = params_.failsafe_count;
-  std::cout << "[planner_zmq] plan rate " << params_.plan_rate << " Hz, front-end "
-            << params_.frontend;
+  std::ostringstream summary;
+  summary << "plan rate " << params_.plan_rate << " Hz, front-end " << params_.frontend;
   if (params_.lock_z) {
-    std::cout << ", altitude locked to z = " << params_.z_lock;
+    summary << ", altitude locked to z = " << params_.z_lock;
   }
-  std::cout << '\n';
+  BLACKBOX_INFO << summary.str();
 }
 
 PlannerZmq::~PlannerZmq() {
@@ -122,8 +122,7 @@ void PlannerZmq::stateLoop() {
 
       if (!odom_init_.load()) {
         odom_init_ = true;
-        std::cout << "[planner_zmq] odom received: " << odom_.transpose()
-                  << '\n';
+        BLACKBOX_INFO << "odom received: " << odom_.transpose();
       }
     } else if (ends_with(topic, "/tf") || ends_with(topic, "/tf_static")) {
       volasim_msgs::TFMessage tf_msg;
@@ -194,8 +193,7 @@ void PlannerZmq::cloudLoop() {
     if (!cloud_init_.load()) {
       cloud_init_ = true;
       std::lock_guard<std::mutex> lock(cloud_mtx_);
-      std::cout << "[planner_zmq] cloud received (" << cloud_.size()
-                << " points)\n";
+      BLACKBOX_INFO << "cloud received (" << cloud_.size() << " points)";
     }
   }
 }
@@ -248,7 +246,7 @@ void PlannerZmq::goalLoop() {
     }
     goal_set_ = true;
     has_planned_ = false;
-    std::cout << "[planner_zmq] goal set: " << goal.transpose() << '\n';
+    BLACKBOX_INFO << "goal set: " << goal.transpose();
   }
 }
 
@@ -338,8 +336,7 @@ void PlannerZmq::planLoop() {
                        std::chrono::steady_clock::now() - plan_t0).count();
 
     if (status != plan_metadata::Status::SUCCESS) {
-      std::cerr << "[planner_zmq] plan failed: "
-                << plan_metadata::to_string(status) << '\n';
+      BLACKBOX_WARN << "plan failed: " << plan_metadata::to_string(status);
       if (params_.publish_debug) {
         debug_.publish(core_, params_, ctx, goal, cloud, sent_traj_);
       }
@@ -407,12 +404,11 @@ void PlannerZmq::planLoop() {
       curr_horizon_ = max_dist_horizon_;
     }
 
-    std::cout << "[planner_zmq] trajectory published ("
-              << sent_traj_.size() << " points)\n";
+    BLACKBOX_INFO << "trajectory published (" << sent_traj_.size() << " points)";
 
     if (plan_once_) {
       has_planned_ = true;
-      std::cout << "[planner_zmq] --once: planned for current goal, waiting for next goal.\n";
+      BLACKBOX_INFO << "--once: planned for current goal, waiting for next goal.";
     }
   }
 }

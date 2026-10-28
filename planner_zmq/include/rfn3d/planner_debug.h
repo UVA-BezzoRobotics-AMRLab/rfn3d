@@ -21,14 +21,14 @@ struct plan_context_t {
 
 // Records PlannerCore internals after every plan() via blackbox, for viewing
 // in Foxglove:
-//   /rfn3d/cloud       foxglove.PointCloud   obstacle cloud the planner was given
-//   /rfn3d/map         foxglove.PointCloud   occupied (state 1) and inflated-surface
-//                                            (state 2) voxels
-//   /rfn3d/search      foxglove.SceneUpdate  raw JPS jump points, simplified path,
-//                                            start / requested goal / goal used
-//   /rfn3d/corridor    foxglove.SceneUpdate  safe-flight-corridor polytopes
-//   /rfn3d/trajectory  foxglove.SceneUpdate  new trajectory and committed trajectory
-//   /rfn3d/plan        rfn3d.PlanStats       status, stage timings, counts
+//   /rfn3d/cloud       points           obstacle cloud the planner was given
+//   /rfn3d/map         points           occupied (value 1) and inflated-surface
+//                                       (value 2) voxels
+//   /rfn3d/search      scene            raw JPS jump points, simplified path,
+//                                       start / requested goal / goal used
+//   /rfn3d/corridor    scene            safe-flight-corridor polytopes
+//   /rfn3d/trajectory  scene            new trajectory and committed trajectory
+//   /rfn3d/plan        rfn3d.PlanStats  status, stage timings, counts
 // Every topic is republished on every plan (failures included) and replaces
 // what was shown before, so scrubbing never shows stale data.
 class PlannerDebug {

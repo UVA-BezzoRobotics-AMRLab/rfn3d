@@ -22,7 +22,6 @@ void signal_handler(int) {
 int main(int argc, char* argv[]) {
   // Record outputs, debug views and all console output (/log) via blackbox.
   blackbox::init("planner_zmq");
-  blackbox::captureStdio();
 
   const char* usage =
       "usage: planner_zmq [--once] [--config <planner.yaml>] [--lock-z <height_m>]\n";
@@ -61,19 +60,18 @@ int main(int argc, char* argv[]) {
   std::string error;
   if (!config.empty()) {
     if (!load_params_yaml(config, params, error)) {
-      std::cerr << "[planner_zmq] " << error << '\n';
+      BLACKBOX_ERROR << error;
       return 1;
     }
-    std::cout << "[planner_zmq] loaded " << config << '\n';
+    BLACKBOX_INFO << "loaded " << config;
   } else if (std::ifstream(RFN3D_DEFAULT_CONFIG).good()) {
     if (!load_params_yaml(RFN3D_DEFAULT_CONFIG, params, error)) {
-      std::cerr << "[planner_zmq] " << error << '\n';
+      BLACKBOX_ERROR << error;
       return 1;
     }
-    std::cout << "[planner_zmq] loaded " << RFN3D_DEFAULT_CONFIG << '\n';
+    BLACKBOX_INFO << "loaded " << RFN3D_DEFAULT_CONFIG;
   } else {
-    std::cout << "[planner_zmq] " << RFN3D_DEFAULT_CONFIG
-              << " not found; using built-in defaults\n";
+    BLACKBOX_INFO << RFN3D_DEFAULT_CONFIG << " not found; using built-in defaults";
   }
 
   // --lock-z overrides the config file.

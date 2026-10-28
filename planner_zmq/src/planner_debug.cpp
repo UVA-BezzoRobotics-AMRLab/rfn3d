@@ -1,129 +1,26 @@
 #include <rfn3d/planner_debug.h>
 
-#include <cstring>
-
 #include <blackbox/blackbox.h>
-#include <foxglove/PointCloud.pb.h>
-#include <foxglove/SceneUpdate.pb.h>
 #include <gcopter/geo_utils.hpp>
 #include <gcopter/quickhull.hpp>
 #include <rfn3d/PlanStats.pb.h>
 
 namespace {
 
-struct Rgba {
-  double r, g, b, a;
-};
-
-constexpr Rgba kJumpColor{1.0, 0.55, 0.0, 1.0};      // orange
-constexpr Rgba kPathColor{0.1, 0.9, 0.2, 1.0};       // green
-constexpr Rgba kStartColor{0.2, 0.4, 1.0, 1.0};      // blue
-constexpr Rgba kGoalColor{1.0, 0.1, 0.1, 1.0};       // red
-constexpr Rgba kGoalUsedColor{1.0, 0.9, 0.0, 1.0};   // yellow
-constexpr Rgba kNewTrajColor{1.0, 0.2, 0.9, 1.0};    // magenta
-constexpr Rgba kCommittedColor{0.0, 0.9, 0.9, 1.0};  // cyan
-constexpr Rgba kPolyColors[2] = {{0.2, 0.4, 1.0, 0.15}, {0.2, 0.9, 0.6, 0.15}};
-
-void setColor(foxglove::Color* c, const Rgba& rgba) {
-  c->set_r(rgba.r);
-  c->set_g(rgba.g);
-  c->set_b(rgba.b);
-  c->set_a(rgba.a);
-}
-
-void setPoint(foxglove::Point3* p, const Eigen::Vector3d& v) {
-  p->set_x(v.x());
-  p->set_y(v.y());
-  p->set_z(v.z());
-}
+constexpr blackbox::Color kJumpColor      = blackbox::color::orange;
+constexpr blackbox::Color kPathColor      = blackbox::color::green;
+constexpr blackbox::Color kStartColor     = blackbox::color::blue;
+constexpr blackbox::Color kGoalColor      = blackbox::color::red;
+constexpr blackbox::Color kGoalUsedColor  = blackbox::color::yellow;
+constexpr blackbox::Color kNewTrajColor   = blackbox::color::magenta;
+constexpr blackbox::Color kCommittedColor = blackbox::color::cyan;
+constexpr blackbox::Color kPolyColors[2]  = {blackbox::color::blue.alpha(0.15),
+                                             {0.2, 0.9, 0.6, 0.15}};
 
 void setVec(rfn3d::Vec3* p, const Eigen::Vector3d& v) {
   p->set_x(v.x());
   p->set_y(v.y());
   p->set_z(v.z());
-}
-
-void setIdentity(foxglove::Pose* pose) { pose->mutable_orientation()->set_w(1.0); }
-
-foxglove::SceneEntity* addEntity(foxglove::SceneUpdate& update, const std::string& frame,
-                                 const std::string& id, int64_t ns) {
-  foxglove::SceneEntity* e = update.add_entities();
-  blackbox::setStamp(e->mutable_timestamp(), ns);
-  e->set_frame_id(frame);
-  e->set_id(id);
-  return e;  // zero lifetime: shown until replaced
-}
-
-// Each update replaces everything previously shown on its topic.
-void clearAll(foxglove::SceneUpdate& update, int64_t ns) {
-  foxglove::SceneEntityDeletion* d = update.add_deletions();
-  blackbox::setStamp(d->mutable_timestamp(), ns);
-  d->set_type(foxglove::SceneEntityDeletion::ALL);
-}
-
-void addLine(foxglove::SceneEntity* e, const std::vector<Eigen::Vector3d>& pts,
-             double thickness, const Rgba& color) {
-  if (pts.size() < 2) {
-    return;
-  }
-  foxglove::LinePrimitive* line = e->add_lines();
-  line->set_type(foxglove::LinePrimitive::LINE_STRIP);
-  setIdentity(line->mutable_pose());
-  line->set_thickness(thickness);
-  setColor(line->mutable_color(), color);
-  for (const auto& p : pts) {
-    setPoint(line->add_points(), p);
-  }
-}
-
-void addSphere(foxglove::SceneEntity* e, const Eigen::Vector3d& p, double d, const Rgba& color) {
-  foxglove::SpherePrimitive* s = e->add_spheres();
-  s->mutable_pose()->mutable_position()->set_x(p.x());
-  s->mutable_pose()->mutable_position()->set_y(p.y());
-  s->mutable_pose()->mutable_position()->set_z(p.z());
-  s->mutable_pose()->mutable_orientation()->set_w(1.0);
-  s->mutable_size()->set_x(d);
-  s->mutable_size()->set_y(d);
-  s->mutable_size()->set_z(d);
-  setColor(s->mutable_color(), color);
-}
-
-void addField(foxglove::PointCloud& pc, const char* name, uint32_t offset,
-              foxglove::PackedElementField::NumericType type) {
-  foxglove::PackedElementField* f = pc.add_fields();
-  f->set_name(name);
-  f->set_offset(offset);
-  f->set_type(type);
-}
-
-// x, y, z as float32 plus an optional uint8 "state" per point.
-foxglove::PointCloud makeCloud(const std::string& frame, int64_t ns,
-                               const std::vector<Eigen::Vector3d>& pts,
-                               const std::vector<uint8_t>* state) {
-  foxglove::PointCloud pc;
-  blackbox::setStamp(pc.mutable_timestamp(), ns);
-  pc.set_frame_id(frame);
-  setIdentity(pc.mutable_pose());
-  const uint32_t stride = state ? 13 : 12;
-  pc.set_point_stride(stride);
-  addField(pc, "x", 0, foxglove::PackedElementField::FLOAT32);
-  addField(pc, "y", 4, foxglove::PackedElementField::FLOAT32);
-  addField(pc, "z", 8, foxglove::PackedElementField::FLOAT32);
-  if (state) {
-    addField(pc, "state", 12, foxglove::PackedElementField::UINT8);
-  }
-
-  std::string data(pts.size() * stride, '\0');
-  for (size_t i = 0; i < pts.size(); ++i) {
-    const float xyz[3] = {static_cast<float>(pts[i].x()), static_cast<float>(pts[i].y()),
-                          static_cast<float>(pts[i].z())};
-    std::memcpy(&data[i * stride], xyz, sizeof(xyz));
-    if (state) {
-      data[i * stride + 12] = static_cast<char>((*state)[i]);
-    }
-  }
-  pc.set_data(std::move(data));
-  return pc;
 }
 
 std::vector<Eigen::Vector3d> positions(const std::vector<rfn_state_t>& traj) {
@@ -145,13 +42,13 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
   const Eigen::Vector3d start = ctx.initialPVAJ.col(0);
 
   // Obstacle cloud as handed to the planner.
-  blackbox::record("/rfn3d/cloud", makeCloud(frame_id_, ns, cloud, nullptr), ns);
+  blackbox::points("/rfn3d/cloud", cloud, frame_id_, ns);
 
-  // Voxel map: true obstacles and the inflated surface the corridor is cut from.
+  // Voxel map: true obstacles (1) and the inflated surface the corridor is cut from (2).
   size_t occupied_count = 0;
   {
     std::vector<Eigen::Vector3d> pts;
-    std::vector<uint8_t> state;
+    std::vector<float> state;
     if (const voxel_map::VoxelMap* map = core.get_map()) {
       const Eigen::Vector3i size = map->getSize();
       const std::vector<uint8_t>& vox = map->getVoxels();
@@ -160,7 +57,7 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
           for (int x = 0; x < size.x(); ++x) {
             if (vox[x + size.x() * (y + size.y() * z)] == voxel_map::Occupied) {
               pts.push_back(map->posI2D(Eigen::Vector3i(x, y, z)));
-              state.push_back(1);
+              state.push_back(1.0f);
             }
           }
         }
@@ -169,40 +66,31 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
       std::vector<Eigen::Vector3d> surf;
       map->getSurf(surf);
       pts.insert(pts.end(), surf.begin(), surf.end());
-      state.resize(pts.size(), 2);
+      state.resize(pts.size(), 2.0f);
     }
-    blackbox::record("/rfn3d/map", makeCloud(frame_id_, ns, pts, &state), ns);
+    blackbox::points("/rfn3d/map", pts, state, frame_id_, ns);
   }
 
   // Front-end search.
   const std::vector<Eigen::Vector3d> front_path = core.get_front_path();
   {
-    foxglove::SceneUpdate update;
-    clearAll(update, ns);
     const double voxel = params.map_resolution;
-
-    foxglove::SceneEntity* jumps = addEntity(update, frame_id_, "jump_points", ns);
-    addLine(jumps, core.get_jump_points(), 0.03, kJumpColor);
-    for (const auto& p : core.get_jump_points()) {
-      addSphere(jumps, p, 1.5 * voxel, kJumpColor);
-    }
-
-    addLine(addEntity(update, frame_id_, "path", ns), front_path, 0.06, kPathColor);
-
-    foxglove::SceneEntity* marks = addEntity(update, frame_id_, "endpoints", ns);
-    addSphere(marks, start, 0.25, kStartColor);
-    addSphere(marks, goal_requested, 0.3, kGoalColor);
+    blackbox::Scene scene(frame_id_);
+    scene.line(core.get_jump_points(), kJumpColor, 0.03)
+        .spheres(core.get_jump_points(), 1.5 * voxel, kJumpColor)
+        .line(front_path, kPathColor, 0.06)
+        .sphere(start, 0.25, kStartColor)
+        .sphere(goal_requested, 0.3, kGoalColor);
     if ((core.get_goal_used() - goal_requested).norm() > 1e-6) {
-      addSphere(marks, core.get_goal_used(), 0.3, kGoalUsedColor);
+      scene.sphere(core.get_goal_used(), 0.3, kGoalUsedColor);
     }
-    blackbox::record("/rfn3d/search", update, ns);
+    blackbox::draw("/rfn3d/search", scene, ns);
   }
 
-  // Corridor polytopes as translucent meshes, one entity each, alternating colors.
+  // Corridor polytopes as translucent meshes, alternating colors.
   const std::vector<Eigen::MatrixX4d> hpolys = core.get_hpolys();
   {
-    foxglove::SceneUpdate update;
-    clearAll(update, ns);
+    blackbox::Scene scene(frame_id_);
     for (size_t i = 0; i < hpolys.size(); ++i) {
       Eigen::Matrix3Xd vpoly;
       if (!geo_utils::enumerateVs(hpolys[i], vpoly) || vpoly.cols() < 4) {
@@ -212,26 +100,23 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
       const auto hull = qh.getConvexHull(vpoly.data(), vpoly.cols(), false, true);
       const auto& idx = hull.getIndexBuffer();
 
-      foxglove::SceneEntity* e = addEntity(update, frame_id_, "poly_" + std::to_string(i), ns);
-      foxglove::TriangleListPrimitive* tri = e->add_triangles();
-      setIdentity(tri->mutable_pose());
-      setColor(tri->mutable_color(), kPolyColors[i % 2]);
+      std::vector<Eigen::Vector3d> vertices;
+      vertices.reserve(idx.size());
       for (size_t k = 0; k < idx.size(); ++k) {
-        setPoint(tri->add_points(), vpoly.col(idx[k]));
+        vertices.push_back(vpoly.col(idx[k]));
       }
+      scene.triangles(vertices, kPolyColors[i % 2]);
     }
-    blackbox::record("/rfn3d/corridor", update, ns);
+    blackbox::draw("/rfn3d/corridor", scene, ns);
   }
 
   // Trajectories: what this plan produced, and what the vehicle is following.
   const std::vector<rfn_state_t> new_traj = core.get_trajectory();
   {
-    foxglove::SceneUpdate update;
-    clearAll(update, ns);
-    addLine(addEntity(update, frame_id_, "new", ns), positions(new_traj), 0.05, kNewTrajColor);
-    addLine(addEntity(update, frame_id_, "committed", ns), positions(committed), 0.03,
-            kCommittedColor);
-    blackbox::record("/rfn3d/trajectory", update, ns);
+    blackbox::Scene scene(frame_id_);
+    scene.line(positions(new_traj), kNewTrajColor, 0.05)
+        .line(positions(committed), kCommittedColor, 0.03);
+    blackbox::draw("/rfn3d/trajectory", scene, ns);
   }
 
   // Plan record.
