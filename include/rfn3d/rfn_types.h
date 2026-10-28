@@ -24,6 +24,14 @@ struct planner_params_t {
   // "faster" (Gurobi MIQP; only available when built with Gurobi).
   std::string solver = "gcopter";
 
+  // replanning rate of the wrappers' plan loop (Hz)
+  double plan_rate = 3.0;
+
+  // Debug output (ZMQ wrapper): record planner internals via blackbox every
+  // plan, drawn in this Foxglove frame.
+  bool publish_debug = true;
+  std::string debug_frame = "drone_0/odom";
+
   // receding horizon / trajectory sampling
   double traj_dt = 0.05;          // trajectory sample period (s)
   double max_dist_horizon = 10.0; // upper bound on the receding horizon (m)
@@ -32,12 +40,27 @@ struct planner_params_t {
   // obstacle cloud crop: full box side length around odom (m)
   double cloud_crop = 30.0;
 
+  // geometric front-end: "jps" (Jump Point Search on the local voxel map,
+  // default) or "rrt" (OMPL RRT*).
+  std::string frontend = "jps";
+
+  // Altitude lock: when set, plan only in the horizontal plane z = z_lock.
+  // The goal's z is replaced by z_lock and the corridor is clamped to a thin
+  // slab around it. Always uses the JPS front-end.
+  bool lock_z = false;
+  double z_lock = 1.0;
+
   // RRT* front-end
   double rrt_range = 2.5;
   double robot_radius = 0.25;
   double map_resolution = 0.1;
   Eigen::Vector3d bounds_min = Eigen::Vector3d(-100, -100, -5);
   Eigen::Vector3d bounds_max = Eigen::Vector3d(100, 100, 100);
+
+  // Free space added around the cloud's bounding box when building the local
+  // voxel map (m). JPS cannot leave the map, so this is the room it has to
+  // route around obstacles at the edge of what the sensor sees.
+  double map_padding = 1.0;
 
   // safe flight corridor (sfc_gen::convexCover)
   double corridor_progress = 7.0;
@@ -66,6 +89,7 @@ enum class Status {
   SUCCESS = 0,
   EMPTY_CLOUD,
   RRT_FAILED,
+  JPS_FAILED,
   CORRIDOR_FAILED,
   CORRIDOR_NO_OVERLAP,
   SOLVER_FAILED,
@@ -79,6 +103,8 @@ constexpr std::string_view to_string(Status status) {
     return "Empty Pointcloud";
   case Status::RRT_FAILED:
     return "RRT failure";
+  case Status::JPS_FAILED:
+    return "JPS failure";
   case Status::CORRIDOR_FAILED:
     return "Corridor generation failed";
   case Status::CORRIDOR_NO_OVERLAP:

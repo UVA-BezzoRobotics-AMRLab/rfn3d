@@ -1,9 +1,11 @@
+#include <rfn3d/params_yaml.h>
 #include <rfn3d/planner_ros2.h>
 #include <rfn3d/utils.h>
 
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <stdexcept>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -13,6 +15,18 @@ using std::placeholders::_1;
 
 PlannerROS2::PlannerROS2() : Node("planner_node")
 {
+    // Planner parameters come from a YAML file (config/planner.yaml, passed by
+    // the launch file); without one the planner_params_t defaults are used.
+    const std::string config = this->declare_parameter<std::string>("config_file", "");
+    if (!config.empty())
+    {
+        std::string error;
+        if (!load_params_yaml(config, _params, error))
+        {
+            throw std::runtime_error(error);
+        }
+        RCLCPP_INFO(get_logger(), "loaded %s", config.c_str());
+    }
     _core.set_params(_params);
 
     // Topics are set by launch remappings; the frame is a parameter (a TF frame is not a
@@ -40,7 +54,8 @@ PlannerROS2::PlannerROS2() : Node("planner_node")
     _traj_viz_pub = create_publisher<visualization_msgs::msg::MarkerArray>("/traj_viz", 1);
     _traj_pub = create_publisher<trajectory_msgs::msg::MultiDOFJointTrajectory>("/firefly/command/trajectory", 1);
 
-    _plan_timer = create_wall_timer(500ms, std::bind(&PlannerROS2::plan_loop, this));
+    _plan_timer = create_wall_timer(std::chrono::duration<double>(1.0 / _params.plan_rate),
+                                    std::bind(&PlannerROS2::plan_loop, this));
     _trail_timer = create_wall_timer(100ms, std::bind(&PlannerROS2::trail_loop, this));
 }
 

@@ -1,8 +1,24 @@
+#include <rfn3d/params_yaml.h>
 #include <rfn3d/planner_ros1.h>
+
+#include <stdexcept>
 #include <rfn3d/utils.h>
 
 PlannerROS1::PlannerROS1(ros::NodeHandle &nh)
 {
+    // Planner parameters come from a YAML file given by ~config_file (e.g.
+    // config/planner.yaml); without one the planner_params_t defaults are used.
+    std::string config;
+    ros::NodeHandle("~").param<std::string>("config_file", config, "");
+    if (!config.empty())
+    {
+        std::string error;
+        if (!load_params_yaml(config, _params, error))
+        {
+            throw std::runtime_error(error);
+        }
+        ROS_INFO("loaded %s", config.c_str());
+    }
     _core.set_params(_params);
 
     // These mirror the core's params, so derive them rather than duplicating.
@@ -13,7 +29,7 @@ PlannerROS1::PlannerROS1(ros::NodeHandle &nh)
     _trail.header.frame_id = _frame_id;
     _trail.header.stamp = ros::Time::now();
 
-    _plan_timer = nh.createTimer(ros::Duration(_dt), &PlannerROS1::plan_loop, this);
+    _plan_timer = nh.createTimer(ros::Duration(1.0 / _params.plan_rate), &PlannerROS1::plan_loop, this);
     _trail_timer = nh.createTimer(ros::Duration(.1), &PlannerROS1::trail_loop, this);
 
     _map_sub = nh.subscribe("/octomap_binary", 1, &PlannerROS1::map_cb, this);

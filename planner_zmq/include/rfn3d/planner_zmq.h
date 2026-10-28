@@ -13,7 +13,10 @@
 #include <Eigen/Geometry>
 #include <zmq.hpp>
 
+#include <blackbox/blackbox.h>
+
 #include <rfn3d/planner_core.h>
+#include <rfn3d/planner_debug.h>
 #include <rfn3d/rfn_types.h>
 
 class PlannerZmq {
@@ -27,6 +30,8 @@ class PlannerZmq {
   void run();
   void stop();
   void setPlanOnce(bool v) { plan_once_ = v; }
+  // Replace the planner parameters (call before run()).
+  void setParams(const planner_params_t& params);
 
   void requestStop() {
     running_ = false;
@@ -57,7 +62,7 @@ class PlannerZmq {
   zmq::socket_t  state_sub_;
   zmq::socket_t  cloud_sub_;
   zmq::socket_t  goal_sub_;
-  zmq::socket_t  traj_pub_;
+  blackbox::Publisher traj_pub_;  // delivers to the sim and records a copy
 
   Eigen::Vector3d    odom_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d    odom_vel_{Eigen::Vector3d::Zero()};
@@ -89,6 +94,7 @@ class PlannerZmq {
 
   PlannerCore    core_;
   planner_params_t params_;
+  PlannerDebug debug_{params_.debug_frame};
 
   // Trajectory stitching state, mirroring the ROS wrappers.
   std::vector<rfn_state_t> sent_traj_;

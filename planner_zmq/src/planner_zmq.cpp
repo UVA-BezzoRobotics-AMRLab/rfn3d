@@ -23,11 +23,26 @@ PlannerZmq::PlannerZmq()
       state_sub_(ctx_, zmq::socket_type::sub),
       cloud_sub_(ctx_, zmq::socket_type::sub),
       goal_sub_(ctx_, zmq::socket_type::sub),
-      traj_pub_(ctx_, zmq::socket_type::pub) {
+      traj_pub_(ctx_, "/rfn3d/cmd_trajectory", blackbox::Publisher::Framing::Payload) {
   core_.set_params(params_);
   traj_dt_          = params_.traj_dt;
   max_dist_horizon_ = params_.max_dist_horizon;
   failsafe_count_   = params_.failsafe_count;
+}
+
+void PlannerZmq::setParams(const planner_params_t& params) {
+  params_ = params;
+  debug_ = PlannerDebug(params_.debug_frame);
+  core_.set_params(params_);
+  traj_dt_          = params_.traj_dt;
+  max_dist_horizon_ = params_.max_dist_horizon;
+  failsafe_count_   = params_.failsafe_count;
+  std::cout << "[planner_zmq] plan rate " << params_.plan_rate << " Hz, front-end "
+            << params_.frontend;
+  if (params_.lock_z) {
+    std::cout << ", altitude locked to z = " << params_.z_lock;
+  }
+  std::cout << '\n';
 }
 
 PlannerZmq::~PlannerZmq() {
@@ -222,6 +237,10 @@ void PlannerZmq::goalLoop() {
 
     const auto* data = static_cast<const double*>(msg.data());
     Eigen::Vector3d goal(data[0], data[1], data[2]);
+    // Keep the goal on the locked plane so the goal-reached check can fire.
+    if (params_.lock_z) {
+      goal.z() = params_.z_lock;
+    }
 
     {
       std::lock_guard<std::mutex> lock(goal_mtx_);
@@ -234,7 +253,8 @@ void PlannerZmq::goalLoop() {
 }
 
 void PlannerZmq::planLoop() {
-  constexpr auto plan_period = std::chrono::milliseconds(500);
+  const auto plan_period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      std::chrono::duration<double>(1.0 / params_.plan_rate));
   auto next = std::chrono::steady_clock::now();
 
   while (running_.load()) {
@@ -305,10 +325,24 @@ void PlannerZmq::planLoop() {
       cloud = cloud_;
     }
 
+    const auto plan_t0 = std::chrono::steady_clock::now();
     auto status = core_.plan(initialPVAJ, goal, cloud, curr_horizon_);
+
+    plan_context_t ctx;
+    ctx.status      = status;
+    ctx.initialPVAJ = initialPVAJ;
+    ctx.horizon     = curr_horizon_;
+    ctx.failsafe    = is_failsafe;
+    ctx.fail_count  = count_;
+    ctx.total_ms    = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - plan_t0).count();
+
     if (status != plan_metadata::Status::SUCCESS) {
       std::cerr << "[planner_zmq] plan failed: "
                 << plan_metadata::to_string(status) << '\n';
+      if (params_.publish_debug) {
+        debug_.publish(core_, params_, ctx, goal, cloud, sent_traj_);
+      }
       count_++;
       if (count_ >= failsafe_count_) {
         curr_horizon_ *= 0.9;
@@ -363,6 +397,9 @@ void PlannerZmq::planLoop() {
 
     start_ = std::chrono::steady_clock::now();
     publishTrajectory(sent_traj_);
+    if (params_.publish_debug) {
+      debug_.publish(core_, params_, ctx, goal, cloud, sent_traj_);
+    }
 
     count_ = 0;
     curr_horizon_ /= 0.9;
@@ -421,9 +458,7 @@ void PlannerZmq::publishTrajectory(const std::vector<rfn_state_t>& traj) {
     pt->set_time(s.t);
   }
 
-  std::string bytes;
-  (void)traj_msg.SerializeToString(&bytes);
-  traj_pub_.send(zmq::buffer(bytes), zmq::send_flags::none);
+  traj_pub_.send(traj_msg);
 }
 
 // Yaw follows the velocity tangent, but starts from the current heading and

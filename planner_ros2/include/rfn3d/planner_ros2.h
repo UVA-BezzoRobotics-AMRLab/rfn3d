@@ -62,7 +62,6 @@ private:
 
     rclcpp::Time _start;
 
-    double _dt = 0.5;
     double _traj_dt;          // set from params in the ctor
     double _lookahead = 1.0;
     double _curr_horizon = 10.0;
