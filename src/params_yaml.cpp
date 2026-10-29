@@ -36,6 +36,7 @@ public:
         }
     }
 
+    // Otherwise a typo silently falls back to the default.
     void warnUnknown(const std::string &path) const
     {
         for (const auto &kv : _root)

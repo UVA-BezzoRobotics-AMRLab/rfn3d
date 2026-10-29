@@ -24,11 +24,8 @@ struct planner_params_t {
   // "faster" (Gurobi MIQP; only available when built with Gurobi).
   std::string solver = "gcopter";
 
-  // replanning rate of the wrappers' plan loop (Hz)
-  double plan_rate = 3.0;
+  double plan_rate = 3.0;  // Hz
 
-  // Debug output (ZMQ wrapper): record planner internals via blackbox every
-  // plan, drawn in this Foxglove frame.
   bool publish_debug = true;
   std::string debug_frame = "drone_0/odom";
 
@@ -40,14 +37,9 @@ struct planner_params_t {
   // obstacle cloud crop: full box side length around odom (m)
   double cloud_crop = 30.0;
 
-  // geometric front-end: "jps" (Jump Point Search on the local voxel map,
-  // default) or "rrt" (OMPL RRT*).
-  std::string frontend = "jps";
+  std::string frontend = "jps";  // "jps" | "rrt"
 
-  // Altitude lock: when set, plan only in the horizontal plane z = z_lock.
-  // The goal's z is replaced by z_lock and the corridor is clamped to a thin
-  // slab around it. Always uses the JPS front-end.
-  bool lock_z = false;
+  bool lock_z = false;  // forces the JPS front-end
   double z_lock = 1.0;
 
   // RRT* front-end
@@ -57,21 +49,16 @@ struct planner_params_t {
   Eigen::Vector3d bounds_min = Eigen::Vector3d(-100, -100, -5);
   Eigen::Vector3d bounds_max = Eigen::Vector3d(100, 100, 100);
 
-  // Free space added around the cloud's bounding box when building the local
-  // voxel map (m). JPS cannot leave the map, so this is the room it has to
-  // route around obstacles at the edge of what the sensor sees.
-  double map_padding = 1.0;
+  // JPS can't leave the map, so this is its room to route around obstacles at the sensor's edge.
+  double map_padding = 1.0;  // m
 
   // safe flight corridor (sfc_gen::convexCover)
   double corridor_progress = 7.0;
   double corridor_range = 5.0;
 
-  // Dynamic limits. FASTER enforces them per axis as hard constraints.
-  // gcopter penalizes |v| > v_max, body rate > w_max, and thrust/tilt outside
-  // what |a| <= a_max allows; it has no jerk limit, so j_max is FASTER only.
   double v_max = 3.0;
   double a_max = 5.0;
-  double j_max = 5.0;
+  double j_max = 5.0;  // FASTER only: gcopter has no jerk limit
   double w_max = 3.0;
 
   // FASTER Gurobi solver

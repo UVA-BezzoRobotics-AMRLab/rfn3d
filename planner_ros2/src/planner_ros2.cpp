@@ -15,8 +15,6 @@ using std::placeholders::_1;
 
 PlannerROS2::PlannerROS2() : Node("planner_node")
 {
-    // Planner parameters come from a YAML file (config/planner.yaml, passed by
-    // the launch file); without one the planner_params_t defaults are used.
     const std::string config = this->declare_parameter<std::string>("config_file", "");
     if (!config.empty())
     {

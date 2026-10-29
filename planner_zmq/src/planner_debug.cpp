@@ -7,6 +7,9 @@
 
 namespace {
 
+constexpr float kOccupiedValue        = 1.0f;
+constexpr float kInflatedSurfaceValue = 2.0f;
+
 constexpr blackbox::Color kJumpColor      = blackbox::color::orange;
 constexpr blackbox::Color kPathColor      = blackbox::color::green;
 constexpr blackbox::Color kStartColor     = blackbox::color::blue;
@@ -41,10 +44,8 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
   const int64_t ns = blackbox::nowNs();
   const Eigen::Vector3d start = ctx.initialPVAJ.col(0);
 
-  // Obstacle cloud as handed to the planner.
   blackbox::points("/rfn3d/cloud", cloud, frame_id_, ns);
 
-  // Voxel map: true obstacles (1) and the inflated surface the corridor is cut from (2).
   size_t occupied_count = 0;
   {
     std::vector<Eigen::Vector3d> pts;
@@ -57,7 +58,7 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
           for (int x = 0; x < size.x(); ++x) {
             if (vox[x + size.x() * (y + size.y() * z)] == voxel_map::Occupied) {
               pts.push_back(map->posI2D(Eigen::Vector3i(x, y, z)));
-              state.push_back(1.0f);
+              state.push_back(kOccupiedValue);
             }
           }
         }
@@ -66,12 +67,11 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
       std::vector<Eigen::Vector3d> surf;
       map->getSurf(surf);
       pts.insert(pts.end(), surf.begin(), surf.end());
-      state.resize(pts.size(), 2.0f);
+      state.resize(pts.size(), kInflatedSurfaceValue);
     }
     blackbox::points("/rfn3d/map", pts, state, frame_id_, ns);
   }
 
-  // Front-end search.
   const std::vector<Eigen::Vector3d> front_path = core.get_front_path();
   {
     const double voxel = params.map_resolution;
@@ -87,7 +87,6 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
     blackbox::draw("/rfn3d/search", scene, ns);
   }
 
-  // Corridor polytopes as translucent meshes, alternating colors.
   const std::vector<Eigen::MatrixX4d> hpolys = core.get_hpolys();
   {
     blackbox::Scene scene(frame_id_);
@@ -110,7 +109,6 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
     blackbox::draw("/rfn3d/corridor", scene, ns);
   }
 
-  // Trajectories: what this plan produced, and what the vehicle is following.
   const std::vector<rfn_state_t> new_traj = core.get_trajectory();
   {
     blackbox::Scene scene(frame_id_);
@@ -119,7 +117,6 @@ void PlannerDebug::publish(const PlannerCore& core, const planner_params_t& para
     blackbox::draw("/rfn3d/trajectory", scene, ns);
   }
 
-  // Plan record.
   {
     const plan_timing_t& t = core.get_timing();
     rfn3d::PlanStats stats;

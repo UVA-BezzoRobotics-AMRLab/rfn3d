@@ -12,7 +12,6 @@
 #include <rfn3d/rfn_types.h>
 #include <rfn3d/solver_base.h>
 
-// Wall-clock time spent in each stage of the last plan() (ms).
 struct plan_timing_t {
   double map_ms = 0.0;
   double search_ms = 0.0;
@@ -28,7 +27,6 @@ public:
   PlannerCore();
   ~PlannerCore();
 
-  // Configure the front-end and the trajectory back-end from params.
   void set_params(const planner_params_t &params);
 
   // Plan a fresh trajectory from initialPVAJ (columns: pos, vel, accel, jerk)
@@ -45,9 +43,7 @@ public:
   std::vector<Eigen::MatrixX4d> get_hpolys() const { return _hpolys; }
   std::vector<Eigen::Vector3d> get_front_path() const { return _front_path; }
 
-  // Internals of the last plan() for debugging/visualization. Each is reset at
-  // the start of plan(), so after a failure they hold whatever the failing
-  // stage got to. get_map() is null when no map was built (empty cloud).
+  // After a failed plan() these hold whatever the failing stage got to.
   const voxel_map::VoxelMap *get_map() const { return _has_map ? &_vmap : nullptr; }
   const std::vector<Eigen::Vector3d> &get_jump_points() const { return _jump_points; }
   const std::vector<Eigen::Vector3d> &get_corridor_path() const { return _corridor_path; }
@@ -60,9 +56,7 @@ private:
   std::unique_ptr<SolverBase> _solver;
   planner_params_t _params;
 
-  // Dilated occupancy map built from the obstacle cloud each plan(); both
-  // front-ends search it, and the RRT holds a non-owning pointer to it, so it
-  // must stay alive here.
+  // A member because the RRT keeps a non-owning pointer to it.
   voxel_map::VoxelMap _vmap;
 
   std::vector<rfn_state_t> _traj;
@@ -70,8 +64,8 @@ private:
   std::vector<Eigen::Vector3d> _front_path;
 
   bool _has_map = false;
-  std::vector<Eigen::Vector3d> _jump_points;   // raw JPS jump points (world)
-  std::vector<Eigen::Vector3d> _corridor_path; // truncated path the corridor covers
+  std::vector<Eigen::Vector3d> _jump_points;
+  std::vector<Eigen::Vector3d> _corridor_path;
   Eigen::Vector3d _goal_used{Eigen::Vector3d::Zero()};
   plan_timing_t _timing;
 };

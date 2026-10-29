@@ -10,20 +10,18 @@ message Vec3 {
   double z = 3;
 }
 
-// One record per PlannerCore::plan() call, published on /rfn3d/plan. Flat so
-// every field can go straight into a Foxglove Plot panel.
+// Flat so every field can go straight into a Foxglove Plot panel.
 message PlanStats {
   google.protobuf.Timestamp timestamp = 1;
 
-  string status = 2;     // plan_metadata::to_string(status)
+  string status = 2;
   bool success = 3;
-  bool failsafe = 4;     // planned from a zero-velocity start after repeated failures
-  uint32 fail_count = 5; // consecutive failures before this plan
+  bool failsafe = 4;
+  uint32 fail_count = 5;
 
   string frontend = 6;
   bool lock_z = 7;
 
-  // Wall-clock time spent in each stage (ms); 0 for stages that did not run.
   double map_ms = 8;
   double search_ms = 9;
   double corridor_ms = 10;
@@ -31,14 +29,14 @@ message PlanStats {
   double total_ms = 12;
 
   Vec3 start = 13;
-  Vec3 goal = 14;  // after the altitude lock, if any
-  double horizon = 15;         // receding-horizon length used (m)
+  Vec3 goal = 14;
+  double horizon = 15;  // m
 
-  uint32 cloud_points = 16;      // obstacle points handed to the planner
-  uint32 map_occupied = 17;      // occupied voxels
-  uint32 jump_points = 18;       // raw JPS jump points
-  uint32 path_points = 19;       // front-end path after simplification
+  uint32 cloud_points = 16;
+  uint32 map_occupied = 17;
+  uint32 jump_points = 18;
+  uint32 path_points = 19;
   uint32 polytopes = 20;
   uint32 traj_points = 21;
-  double path_length = 22;       // front-end path length (m)
+  double path_length = 22;  // m
 }

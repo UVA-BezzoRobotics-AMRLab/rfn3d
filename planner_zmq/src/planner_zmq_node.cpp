@@ -20,7 +20,6 @@ void signal_handler(int) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
-  // Record outputs, debug views and all console output (/log) via blackbox.
   blackbox::init("planner_zmq");
 
   const char* usage =
@@ -54,8 +53,7 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  // An explicit --config must load; the built-in default path is optional
-  // (it is absent when the binary runs outside this source tree).
+  // The built-in default is optional: it's absent when run outside this source tree.
   planner_params_t params;
   std::string error;
   if (!config.empty()) {
@@ -74,7 +72,6 @@ int main(int argc, char* argv[]) {
     BLACKBOX_INFO << RFN3D_DEFAULT_CONFIG << " not found; using built-in defaults";
   }
 
-  // --lock-z overrides the config file.
   if (lock_z) {
     params.lock_z = true;
     params.z_lock = *lock_z;

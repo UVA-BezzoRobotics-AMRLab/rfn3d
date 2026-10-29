@@ -42,8 +42,6 @@ find_package(ompl REQUIRED)
 find_package(octomap REQUIRED)
 find_package(Eigen3 REQUIRED)
 
-# yaml-cpp for config/planner.yaml: use a system install if there is one,
-# otherwise vendor it (static, PIC so it can go into planner_lib).
 include(FetchContent)
 find_package(yaml-cpp QUIET)
 if(NOT TARGET yaml-cpp)
@@ -62,6 +60,7 @@ if(NOT TARGET yaml-cpp)
   )
   FetchContent_MakeAvailable(yaml-cpp)
   unset(CMAKE_POLICY_VERSION_MINIMUM)
+  # The static vendored build links into planner_lib.
   set_target_properties(yaml-cpp PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
@@ -199,9 +198,6 @@ else()
   )
   FetchContent_MakeAvailable(volasim_msgs)
 
-  # blackbox: records this node's outputs, debug views and logs to MCAP via
-  # blackbox-record. Uses a sibling checkout (../blackbox) when present, else
-  # the git repo; override with -DFETCHCONTENT_SOURCE_DIR_BLACKBOX=<path>.
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../blackbox/CMakeLists.txt)
     FetchContent_Declare(blackbox SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../blackbox)
   else()
@@ -213,7 +209,6 @@ else()
   endif()
   FetchContent_MakeAvailable(blackbox)
 
-  # rfn3d's own debug messages (PlanStats).
   file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)
   add_library(rfn3d_debug_msgs STATIC proto/rfn3d/PlanStats.proto)
   target_include_directories(rfn3d_debug_msgs PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/proto)
@@ -241,7 +236,6 @@ else()
     cppzmq-static
   )
   target_compile_features(planner_zmq PRIVATE cxx_std_17)
-  # Default config when --config isn't given: the one in this source tree.
   target_compile_definitions(planner_zmq PRIVATE
     RFN3D_DEFAULT_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/config/planner.yaml")
 

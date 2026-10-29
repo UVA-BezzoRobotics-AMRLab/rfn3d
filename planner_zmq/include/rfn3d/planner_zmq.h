@@ -30,7 +30,7 @@ class PlannerZmq {
   void run();
   void stop();
   void setPlanOnce(bool v) { plan_once_ = v; }
-  // Replace the planner parameters (call before run()).
+  // Call before run().
   void setParams(const planner_params_t& params);
 
   void requestStop() {
@@ -62,7 +62,7 @@ class PlannerZmq {
   zmq::socket_t  state_sub_;
   zmq::socket_t  cloud_sub_;
   zmq::socket_t  goal_sub_;
-  blackbox::Publisher traj_pub_;  // delivers to the sim and records a copy
+  blackbox::Publisher traj_pub_;
 
   Eigen::Vector3d    odom_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d    odom_vel_{Eigen::Vector3d::Zero()};

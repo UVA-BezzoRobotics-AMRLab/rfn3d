@@ -6,8 +6,6 @@
 
 PlannerROS1::PlannerROS1(ros::NodeHandle &nh)
 {
-    // Planner parameters come from a YAML file given by ~config_file (e.g.
-    // config/planner.yaml); without one the planner_params_t defaults are used.
     std::string config;
     ros::NodeHandle("~").param<std::string>("config_file", config, "");
     if (!config.empty())

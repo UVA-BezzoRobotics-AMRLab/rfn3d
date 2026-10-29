@@ -8,7 +8,6 @@
 namespace
 {
 
-// How far from the clipped window-edge goal to look for a free voxel (m).
 constexpr double kGoalSnapRadius = 1.0;
 
 struct OpenEntry
@@ -18,7 +17,7 @@ struct OpenEntry
     int id;
 };
 
-// Min-heap on f; ties go to the larger g (deeper node), as in jps3d.
+// Ties go to the deeper node (larger g), as upstream.
 struct OpenCompare
 {
     bool operator()(const OpenEntry &a, const OpenEntry &b) const
@@ -36,8 +35,17 @@ inline int sign(int v)
     return (v > 0) - (v < 0);
 }
 
-// World position -> voxel index. floor (not VoxelMap::posD2I's truncation) so
-// points just below the origin map to -1 and read as outside the map.
+inline int dirId(int dx, int dy, int dz)
+{
+    return (dx + 1) + 3 * (dy + 1) + 9 * (dz + 1);
+}
+
+inline int norm1(int dx, int dy, int dz)
+{
+    return std::abs(dx) + std::abs(dy) + std::abs(dz);
+}
+
+// floor, not VoxelMap::posD2I's truncation, so points just below the origin read as outside.
 inline Eigen::Vector3i toCell(const voxel_map::VoxelMap &map, const Eigen::Vector3d &p)
 {
     return ((p - map.getOrigin()) / map.getScale()).array().floor().cast<int>().matrix();
@@ -51,7 +59,7 @@ bool JPS3D::plan(const voxel_map::VoxelMap &map,
                  std::vector<Eigen::Vector3d> &path)
 {
     path.clear();
-    _cells.clear();
+    _jump_cells.clear();
 
     _map = &map;
     _voxels = &map.getVoxels();
@@ -88,14 +96,12 @@ bool JPS3D::plan(const voxel_map::VoxelMap &map,
         return false;
     }
 
-    // Jump points as voxel centres, anchored to the exact start (and goal when
-    // it is in the map) rather than the centres of their voxels.
     std::vector<Eigen::Vector3d> raw;
-    raw.reserve(_cells.size() + 1);
+    raw.reserve(_jump_cells.size() + 1);
     raw.push_back(start);
-    for (size_t i = 1; i < _cells.size(); ++i)
+    for (size_t i = 1; i < _jump_cells.size(); ++i)
     {
-        raw.push_back(map.posI2D(_cells[i]));
+        raw.push_back(map.posI2D(_jump_cells[i]));
     }
     const Eigen::Vector3d end = goal_in_map ? goal : map.posI2D(goal_id);
     if (raw.size() == 1)
@@ -107,24 +113,10 @@ bool JPS3D::plan(const voxel_map::VoxelMap &map,
         raw.back() = end;
     }
 
-    // Greedy line-of-sight shortcutting: from each kept point, jump to the
-    // farthest later point that is directly visible.
-    path.push_back(raw.front());
-    size_t i = 0;
-    while (i + 1 < raw.size())
-    {
-        size_t j = raw.size() - 1;
-        while (j > i + 1 && !lineFree(raw[i], raw[j]))
-        {
-            --j;
-        }
-        path.push_back(raw[j]);
-        i = j;
-    }
+    shortcut(raw, path);
 
-    // Beyond the window is unknown and treated as free (as the RRT front-end
-    // does), so continue straight on to the real goal when nothing in the map
-    // blocks that segment. The horizon truncation downstream trims it.
+    // Unknown space beyond the window counts as free, as in the RRT front-end;
+    // the horizon truncation downstream trims this leg.
     if (!goal_in_map && lineFree(path.back(), goal))
     {
         path.push_back(goal);
@@ -136,7 +128,7 @@ bool JPS3D::plan(const voxel_map::VoxelMap &map,
 bool JPS3D::search(const Eigen::Vector3i &start, const Eigen::Vector3i &goal)
 {
     _nodes.clear();
-    _cells.clear();
+    _jump_cells.clear();
 
     _gx = goal(0);
     _gy = goal(1);
@@ -163,8 +155,7 @@ bool JPS3D::search(const Eigen::Vector3i &start, const Eigen::Vector3i &goal)
         const OpenEntry top = open.top();
         open.pop();
 
-        // unordered_map references survive rehashing, so `curr` stays valid
-        // while successors are inserted below.
+        // unordered_map references survive rehashing, so `curr` stays valid below.
         Node &curr = _nodes[top.id];
         if (curr.closed || top.g > curr.g)
         {
@@ -177,9 +168,9 @@ bool JPS3D::search(const Eigen::Vector3i &start, const Eigen::Vector3i &goal)
             for (int id = goal_id; id != -1; id = _nodes[id].parent)
             {
                 const Node &n = _nodes[id];
-                _cells.emplace_back(n.x, n.y, n.z);
+                _jump_cells.emplace_back(n.x, n.y, n.z);
             }
-            std::reverse(_cells.begin(), _cells.end());
+            std::reverse(_jump_cells.begin(), _jump_cells.end());
             return true;
         }
 
@@ -223,10 +214,10 @@ bool JPS3D::search(const Eigen::Vector3i &start, const Eigen::Vector3i &goal)
 void JPS3D::getSucc(const Node &curr, std::vector<int> &succ_ids, std::vector<double> &succ_costs)
 {
     const Neib &nb = neibTable();
-    const int norm1 = std::abs(curr.dx) + std::abs(curr.dy) + std::abs(curr.dz);
-    const int num_neib = Neib::nsz[norm1][0];
-    const int num_fneib = Neib::nsz[norm1][1];
-    const int id = (curr.dx + 1) + 3 * (curr.dy + 1) + 9 * (curr.dz + 1);
+    const Neib::Counts counts = Neib::kCountsByNorm1[norm1(curr.dx, curr.dy, curr.dz)];
+    const int num_neib = counts.always;
+    const int num_fneib = counts.force_checks;
+    const int id = dirId(curr.dx, curr.dy, curr.dz);
 
     for (int dev = 0; dev < num_neib + num_fneib; ++dev)
     {
@@ -234,7 +225,7 @@ void JPS3D::getSucc(const Node &curr, std::vector<int> &succ_ids, std::vector<do
         if (dev < num_neib)
         {
             if (!jump(curr.x, curr.y, curr.z,
-                      nb.ns[id][0][dev], nb.ns[id][1][dev], nb.ns[id][2][dev],
+                      nb.always[id][0][dev], nb.always[id][1][dev], nb.always[id][2][dev],
                       nx, ny, nz))
             {
                 continue;
@@ -243,12 +234,13 @@ void JPS3D::getSucc(const Node &curr, std::vector<int> &succ_ids, std::vector<do
         else
         {
             const int f = dev - num_neib;
-            if (!isOccupied(curr.x + nb.f1[id][0][f], curr.y + nb.f1[id][1][f], curr.z + nb.f1[id][2][f]))
+            if (!isOccupied(curr.x + nb.force_check[id][0][f], curr.y + nb.force_check[id][1][f],
+                            curr.z + nb.force_check[id][2][f]))
             {
                 continue;
             }
             if (!jump(curr.x, curr.y, curr.z,
-                      nb.f2[id][0][f], nb.f2[id][1][f], nb.f2[id][2][f],
+                      nb.forced[id][0][f], nb.forced[id][1][f], nb.forced[id][2][f],
                       nx, ny, nz))
             {
                 continue;
@@ -266,9 +258,9 @@ void JPS3D::getSucc(const Node &curr, std::vector<int> &succ_ids, std::vector<do
 bool JPS3D::jump(int x, int y, int z, int dx, int dy, int dz, int &nx, int &ny, int &nz) const
 {
     const Neib &nb = neibTable();
-    const int id = (dx + 1) + 3 * (dy + 1) + 9 * (dz + 1);
-    const int norm1 = std::abs(dx) + std::abs(dy) + std::abs(dz);
-    const int num_neib = Neib::nsz[norm1][0];
+    const int id = dirId(dx, dy, dz);
+    const int move_norm1 = norm1(dx, dy, dz);
+    const int num_neib = Neib::kCountsByNorm1[move_norm1].always;
 
     while (true)
     {
@@ -279,18 +271,19 @@ bool JPS3D::jump(int x, int y, int z, int dx, int dy, int dz, int &nx, int &ny, 
         {
             return false;
         }
-        if ((x == _gx && y == _gy && z == _gz) || hasForced(x, y, z, id, norm1))
+        if ((x == _gx && y == _gy && z == _gz) || hasForced(x, y, z, id, move_norm1))
         {
             break;
         }
 
-        // A diagonal move is a jump point if any of its component directions
-        // (all but the last ns entry, which is the move itself) reaches one.
+        // A diagonal is a jump point if a component direction reaches one; the
+        // last always-entry is the move itself.
         bool found = false;
         for (int k = 0; k < num_neib - 1 && !found; ++k)
         {
             int jx, jy, jz;
-            found = jump(x, y, z, nb.ns[id][0][k], nb.ns[id][1][k], nb.ns[id][2][k], jx, jy, jz);
+            found = jump(x, y, z, nb.always[id][0][k], nb.always[id][1][k], nb.always[id][2][k],
+                         jx, jy, jz);
         }
         if (found)
         {
@@ -304,15 +297,15 @@ bool JPS3D::jump(int x, int y, int z, int dx, int dy, int dz, int &nx, int &ny, 
     return true;
 }
 
-bool JPS3D::hasForced(int x, int y, int z, int id, int norm1) const
+bool JPS3D::hasForced(int x, int y, int z, int id, int move_norm1) const
 {
-    // Only the first 8 / 8 / 6 forced candidates are checked for straight / 2D /
-    // 3D moves; the remaining f1 entries are successor extras.
+    // As upstream: entries past these only add successors, they never force a jump point.
     static constexpr int kNumChecks[4] = {0, 8, 8, 6};
     const Neib &nb = neibTable();
-    for (int fn = 0; fn < kNumChecks[norm1]; ++fn)
+    for (int fn = 0; fn < kNumChecks[move_norm1]; ++fn)
     {
-        if (isOccupied(x + nb.f1[id][0][fn], y + nb.f1[id][1][fn], z + nb.f1[id][2][fn]))
+        if (isOccupied(x + nb.force_check[id][0][fn], y + nb.force_check[id][1][fn],
+                       z + nb.force_check[id][2][fn]))
         {
             return true;
         }
@@ -331,8 +324,7 @@ double JPS3D::heur(int x, int y, int z) const
 bool JPS3D::clipGoal(const Eigen::Vector3d &start, const Eigen::Vector3d &goal,
                      Eigen::Vector3i &goal_id) const
 {
-    // Clip to the box of voxel centres; start is inside it, so the segment
-    // leaves exactly once.
+    // start is inside the box of voxel centres, so the segment leaves it exactly once.
     const double s = _map->getScale();
     const Eigen::Vector3d lo = _map->getOrigin().array() + 0.5 * s;
     const Eigen::Vector3d hi = _map->getCorner().array() - 0.5 * s;
@@ -362,9 +354,11 @@ bool JPS3D::clipGoal(const Eigen::Vector3d &start, const Eigen::Vector3d &goal,
         goal_id = c;
         return true;
     }
+    return nearestFreeCell(c, std::max(1, static_cast<int>(std::ceil(kGoalSnapRadius / s))), goal_id);
+}
 
-    // Exit voxel is blocked: take the closest free voxel in growing cube shells.
-    const int max_r = std::max(1, static_cast<int>(std::ceil(kGoalSnapRadius / s)));
+bool JPS3D::nearestFreeCell(const Eigen::Vector3i &c, int max_r, Eigen::Vector3i &out) const
+{
     for (int r = 1; r <= max_r; ++r)
     {
         int best_d2 = std::numeric_limits<int>::max();
@@ -382,7 +376,7 @@ bool JPS3D::clipGoal(const Eigen::Vector3d &start, const Eigen::Vector3d &goal,
                     if (d2 < best_d2 && isFree(c(0) + i, c(1) + j, c(2) + k))
                     {
                         best_d2 = d2;
-                        goal_id = c + Eigen::Vector3i(i, j, k);
+                        out = c + Eigen::Vector3i(i, j, k);
                     }
                 }
             }
@@ -396,11 +390,27 @@ bool JPS3D::clipGoal(const Eigen::Vector3d &start, const Eigen::Vector3d &goal,
     return false;
 }
 
+void JPS3D::shortcut(const std::vector<Eigen::Vector3d> &raw,
+                     std::vector<Eigen::Vector3d> &path) const
+{
+    path.push_back(raw.front());
+    size_t i = 0;
+    while (i + 1 < raw.size())
+    {
+        size_t j = raw.size() - 1;
+        while (j > i + 1 && !lineFree(raw[i], raw[j]))
+        {
+            --j;
+        }
+        path.push_back(raw[j]);
+        i = j;
+    }
+}
+
+// Amanatides & Woo traversal: visits every voxel the segment touches
+// (conservative at exact corner crossings).
 bool JPS3D::lineFree(const Eigen::Vector3d &a, const Eigen::Vector3d &b) const
 {
-    // Exact voxel traversal (Amanatides & Woo) in voxel units, so no voxel the
-    // segment passes through is skipped. On exact corner crossings it steps one
-    // axis first, i.e. it is conservative there.
     const double s = _map->getScale();
     const Eigen::Vector3d pa = (a - _map->getOrigin()) / s;
     const Eigen::Vector3d pb = (b - _map->getOrigin()) / s;
@@ -435,7 +445,6 @@ bool JPS3D::lineFree(const Eigen::Vector3d &a, const Eigen::Vector3d &b) const
 
     while (true)
     {
-        // Outside the map is unknown and counts as free.
         if (isOccupied(c(0), c(1), c(2)))
         {
             return false;
@@ -448,7 +457,7 @@ bool JPS3D::lineFree(const Eigen::Vector3d &a, const Eigen::Vector3d &b) const
                                            : (t_max[1] < t_max[2] ? 1 : 2);
         if (t_max[ax] > 1.0)
         {
-            return true; // reached b (guards against float drift past `end`)
+            return true; // guards against float drift past `end`
         }
         c(ax) += step[ax];
         t_max[ax] += t_delta[ax];
@@ -469,32 +478,31 @@ JPS3D::Neib::Neib()
         {
             for (int dx = -1; dx <= 1; ++dx)
             {
-                const int id = (dx + 1) + 3 * (dy + 1) + 9 * (dz + 1);
-                const int norm1 = std::abs(dx) + std::abs(dy) + std::abs(dz);
-                for (int dev = 0; dev < nsz[norm1][0]; ++dev)
+                const int id = dirId(dx, dy, dz);
+                const int n1 = norm1(dx, dy, dz);
+                for (int dev = 0; dev < kCountsByNorm1[n1].always; ++dev)
                 {
-                    neib(dx, dy, dz, norm1, dev, ns[id][0][dev], ns[id][1][dev], ns[id][2][dev]);
+                    neib(dx, dy, dz, n1, dev, always[id][0][dev], always[id][1][dev], always[id][2][dev]);
                 }
-                for (int dev = 0; dev < nsz[norm1][1]; ++dev)
+                for (int dev = 0; dev < kCountsByNorm1[n1].force_checks; ++dev)
                 {
-                    fneib(dx, dy, dz, norm1, dev,
-                          f1[id][0][dev], f1[id][1][dev], f1[id][2][dev],
-                          f2[id][0][dev], f2[id][1][dev], f2[id][2][dev]);
+                    fneib(dx, dy, dz, n1, dev,
+                          force_check[id][0][dev], force_check[id][1][dev], force_check[id][2][dev],
+                          forced[id][0][dev], forced[id][1][dev], forced[id][2][dev]);
                 }
             }
         }
     }
 }
 
-// Neighbor and forced-neighbor tables below are transcribed from jps3d's
-// JPS3DNeib::Neib / JPS3DNeib::FNeib.
+// Transcribed from upstream JPS3DNeib::Neib / FNeib.
 void JPS3D::Neib::neib(int dx, int dy, int dz, int norm1, int dev, int &tx, int &ty, int &tz)
 {
     switch (norm1)
     {
     case 0:
     {
-        // All 26 neighbors, in jps3d's order.
+        // Upstream's order, which decides ties.
         static constexpr int all[26][3] = {
             {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {1, 1, 0}, {-1, 1, 0}, {0, -1, 0}, {1, -1, 0}, {-1, -1, 0},
             {0, 0, 1}, {1, 0, 1}, {-1, 0, 1}, {0, 1, 1}, {1, 1, 1}, {-1, 1, 1}, {0, -1, 1}, {1, -1, 1},
@@ -557,7 +565,7 @@ void JPS3D::Neib::fneib(int dx, int dy, int dz, int norm1, int dev,
         case 7: fx = -1; fy = -1; fz = 0; break;
         }
         nx = fx; ny = fy; nz = dz;
-        // The pattern above is for a z move; rotate it for x / y moves.
+        // Written for a z move; rotated for x and y moves.
         if (dx != 0)
         {
             fz = fx; fx = 0;
@@ -582,7 +590,6 @@ void JPS3D::Neib::fneib(int dx, int dy, int dz, int norm1, int dev,
             case 5:  fx =  1; fy = -dy; fz =   0; nx =  1; ny = -dy; nz =  dz; return;
             case 6:  fx = -1; fy =   0; fz = -dz; nx = -1; ny =  dy; nz = -dz; return;
             case 7:  fx = -1; fy = -dy; fz =   0; nx = -1; ny = -dy; nz =  dz; return;
-            // Extras
             case 8:  fx =  1; fy =   0; fz =   0; nx =  1; ny =  dy; nz =   0; return;
             case 9:  fx =  1; fy =   0; fz =   0; nx =  1; ny =   0; nz =  dz; return;
             case 10: fx = -1; fy =   0; fz =   0; nx = -1; ny =  dy; nz =   0; return;
@@ -601,7 +608,6 @@ void JPS3D::Neib::fneib(int dx, int dy, int dz, int norm1, int dev,
             case 5:  fx = -dx; fy =  1; fz =   0; nx = -dx; ny =  1; nz =  dz; return;
             case 6:  fx =   0; fy = -1; fz = -dz; nx =  dx; ny = -1; nz = -dz; return;
             case 7:  fx = -dx; fy = -1; fz =   0; nx = -dx; ny = -1; nz =  dz; return;
-            // Extras
             case 8:  fx =   0; fy =  1; fz =   0; nx =  dx; ny =  1; nz =   0; return;
             case 9:  fx =   0; fy =  1; fz =   0; nx =   0; ny =  1; nz =  dz; return;
             case 10: fx =   0; fy = -1; fz =   0; nx =  dx; ny = -1; nz =   0; return;
@@ -620,7 +626,6 @@ void JPS3D::Neib::fneib(int dx, int dy, int dz, int norm1, int dev,
             case 5:  fx = -dx; fy =   0; fz =  1; nx = -dx; ny =  dy; nz =  1; return;
             case 6:  fx =   0; fy = -dy; fz = -1; nx =  dx; ny = -dy; nz = -1; return;
             case 7:  fx = -dx; fy =   0; fz = -1; nx = -dx; ny =  dy; nz = -1; return;
-            // Extras
             case 8:  fx =   0; fy =   0; fz =  1; nx =  dx; ny =   0; nz =  1; return;
             case 9:  fx =   0; fy =   0; fz =  1; nx =   0; ny =  dy; nz =  1; return;
             case 10: fx =   0; fy =   0; fz = -1; nx =  dx; ny =   0; nz = -1; return;
@@ -634,11 +639,9 @@ void JPS3D::Neib::fneib(int dx, int dy, int dz, int norm1, int dev,
         case 0:  fx = -dx; fy =   0; fz =   0; nx = -dx; ny =  dy; nz =  dz; return;
         case 1:  fx =   0; fy = -dy; fz =   0; nx =  dx; ny = -dy; nz =  dz; return;
         case 2:  fx =   0; fy =   0; fz = -dz; nx =  dx; ny =  dy; nz = -dz; return;
-        // Need to check up to here for forced!
         case 3:  fx =   0; fy = -dy; fz = -dz; nx =  dx; ny = -dy; nz = -dz; return;
         case 4:  fx = -dx; fy =   0; fz = -dz; nx = -dx; ny =  dy; nz = -dz; return;
         case 5:  fx = -dx; fy = -dy; fz =   0; nx = -dx; ny = -dy; nz =  dz; return;
-        // Extras
         case 6:  fx = -dx; fy =   0; fz =   0; nx = -dx; ny =   0; nz =  dz; return;
         case 7:  fx = -dx; fy =   0; fz =   0; nx = -dx; ny =  dy; nz =   0; return;
         case 8:  fx =   0; fy = -dy; fz =   0; nx =   0; ny = -dy; nz =  dz; return;

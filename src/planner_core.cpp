@@ -18,9 +18,7 @@ double msSince(std::chrono::steady_clock::time_point t0)
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
 
-// Minimum half-height of the z slab the corridor is clamped to when the
-// altitude is locked (m).
-constexpr double kZLockSlab = 0.1;
+constexpr double kMinLockSlabHalfHeight = 0.1;
 
 // Truncate `path` to the first `d` metres of arc length, interpolating the
 // final point onto the segment it lands in. Returns false if the path is
@@ -110,11 +108,6 @@ plan_metadata::Status PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initi
     _corridor_path.clear();
     _timing = plan_timing_t{};
 
-    // Altitude lock: plan in the z = z_lock plane. The goal is moved onto the
-    // plane, obstacles that could touch the robot anywhere in a thin slab around
-    // it are projected onto it, and the corridor (hence the trajectory) is
-    // clamped to that slab through the planning bounds. The slab grows to
-    // contain the current altitude so the vehicle can converge onto the plane.
     Eigen::Vector3d goal = goal_in;
     Eigen::Vector3d bounds_min = _params.bounds_min;
     Eigen::Vector3d bounds_max = _params.bounds_max;
@@ -124,7 +117,8 @@ plan_metadata::Status PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initi
     if (_params.lock_z)
     {
         const double z = _params.z_lock;
-        const double slab = std::max(kZLockSlab, std::abs(start.z() - z) + scale);
+        // Grows to include the current altitude so the vehicle can converge onto the plane.
+        const double slab = std::max(kMinLockSlabHalfHeight, std::abs(start.z() - z) + scale);
         goal.z() = z;
         search_start.z() = z;
         bounds_min.z() = z - slab;
@@ -176,14 +170,8 @@ plan_metadata::Status PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initi
     }
     else
     {
-        // Build a dilated occupancy map from the cloud for front-end collision
-        // checks. The grid spans the cloud's bounding box and the start, padded
-        // by the robot radius plus map_padding of free space, and dilation by
-        // that radius means a free query() already clears the robot. JPS needs
-        // the start inside the grid; clamping to the planning bounds keeps the
-        // grid from growing past where either front-end may plan. With the
-        // altitude locked the grid is a single voxel layer at z_lock, which
-        // makes JPS a planar search.
+        // JPS needs the start inside the grid; clamping to the planning bounds keeps the grid
+        // from growing past where either front-end may plan.
         auto t0 = std::chrono::steady_clock::now();
         Eigen::Vector3d lo = search_start;
         Eigen::Vector3d hi = search_start;
@@ -246,8 +234,7 @@ plan_metadata::Status PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initi
             }
         }
         _timing.search_ms = msSince(t0);
-        // Under the altitude lock JPS starts from the start projected onto the
-        // plane; anchor the path at the real start (inside the slab).
+        // Under the altitude lock JPS searched from the start projected onto the plane.
         path.front() = start;
         _front_path = path;
 
@@ -256,10 +243,8 @@ plan_metadata::Status PlannerCore::plan(const Eigen::Matrix<double, 3, 4> &initi
         {
             path = truncated;
         }
-        // An approximate RRT solution (or a JPS path cut off at the map edge)
-        // stops short of the goal, and the corridor only covers the path; ending
-        // at the goal would leave the corridor, and the solver's soft corridor
-        // penalty lets that cut through obstacles.
+        // The path can stop short of the goal (approximate RRT, JPS cut off at the map edge), and
+        // ending outside the corridor lets the solver's soft penalty cut through obstacles.
         final_pos = path.back();
         _corridor_path = path;
 

@@ -9,7 +9,6 @@
 #include <rfn3d/planner_core.h>
 #include <rfn3d/rfn_types.h>
 
-// Inputs to and context around one PlannerCore::plan() call, for debug output.
 struct plan_context_t {
   plan_metadata::Status status = plan_metadata::Status::SUCCESS;
   Eigen::Matrix<double, 3, 4> initialPVAJ = Eigen::Matrix<double, 3, 4>::Zero();
@@ -19,18 +18,8 @@ struct plan_context_t {
   double total_ms = 0.0;
 };
 
-// Records PlannerCore internals after every plan() via blackbox, for viewing
-// in Foxglove:
-//   /rfn3d/cloud       points           obstacle cloud the planner was given
-//   /rfn3d/map         points           occupied (value 1) and inflated-surface
-//                                       (value 2) voxels
-//   /rfn3d/search      scene            raw JPS jump points, simplified path,
-//                                       start / requested goal / goal used
-//   /rfn3d/corridor    scene            safe-flight-corridor polytopes
-//   /rfn3d/trajectory  scene            new trajectory and committed trajectory
-//   /rfn3d/plan        rfn3d.PlanStats  status, stage timings, counts
-// Every topic is republished on every plan (failures included) and replaces
-// what was shown before, so scrubbing never shows stale data.
+// Every topic is republished on every plan, failures included, so scrubbing
+// never shows stale data.
 class PlannerDebug {
  public:
   explicit PlannerDebug(std::string frame_id) : frame_id_(std::move(frame_id)) {}
