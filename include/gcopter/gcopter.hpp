@@ -762,7 +762,8 @@ namespace gcopter
             magnitudeBd = magnitudeBounds;
             penaltyWt = penaltyWeights;
             physicalPm = physicalParams;
-            allocSpeed = magnitudeBd(0) * 3.0;
+            // rfn3d: upstream 3 * v_max let L-BFGS stall at the initial guess with a finite cost.
+            allocSpeed = magnitudeBd(0);
 
             getShortestPath(headPVA.col(0), tailPVA.col(0),
                             vPolytopes, smoothEps, shortPath);

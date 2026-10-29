@@ -10,4 +10,4 @@ if ! rostopic list >/dev/null 2>&1; then
   until rostopic list >/dev/null 2>&1; do sleep 0.5; done
 fi
 
-exec rosrun rfn3d planner
+exec rosrun rfn3d planner _config_file:="${RFN3D_CONFIG:-/ws/src/rfn3d/config/planner.yaml}"

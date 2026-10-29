@@ -69,7 +69,6 @@ private:
     ros::Timer _plan_timer;
     ros::Timer _trail_timer;
 
-    double _dt = 0.5;
     double _traj_dt;         // set from params in the ctor
     double _lookahead = 1.0;
     double _curr_horizon = 10.0;

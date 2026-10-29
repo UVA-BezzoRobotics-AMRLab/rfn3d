@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package rfn3d;
+
+message Vec3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+// Flat so every field can go straight into a Foxglove Plot panel.
+message PlanStats {
+  google.protobuf.Timestamp timestamp = 1;
+
+  string status = 2;
+  bool success = 3;
+  bool failsafe = 4;
+  uint32 fail_count = 5;
+
+  string frontend = 6;
+  bool lock_z = 7;
+
+  double map_ms = 8;
+  double search_ms = 9;
+  double corridor_ms = 10;
+  double solver_ms = 11;
+  double total_ms = 12;
+
+  Vec3 start = 13;
+  Vec3 goal = 14;
+  double horizon = 15;  // m
+
+  uint32 cloud_points = 16;
+  uint32 map_occupied = 17;
+  uint32 jump_points = 18;
+  uint32 path_points = 19;
+  uint32 polytopes = 20;
+  uint32 traj_points = 21;
+  double path_length = 22;  // m
+}

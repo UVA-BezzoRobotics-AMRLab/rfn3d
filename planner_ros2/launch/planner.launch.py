@@ -7,6 +7,9 @@ today, so launching with no overrides reproduces current behaviour. Override any
 on the command line, e.g.:
 
     ros2 launch rfn3d planner.launch.py odom_topic:=/drone/odom frame_id:=map
+
+Planner tuning (plan rate, front-end, altitude lock, ...) lives in config/planner.yaml;
+point at another file with config:=/path/to/planner.yaml.
 """
 
 from launch import LaunchDescription
@@ -41,6 +44,10 @@ def generate_launch_description():
         "frame_id", default_value="world",
         description="TF frame the planner works and publishes in"))
     ld.add_action(DeclareLaunchArgument(
+        "config", default_value=PathJoinSubstitution([
+            FindPackageShare("rfn3d"), "config", "planner.yaml"]),
+        description="Planner parameter file (plan_rate, front-end, altitude lock, ...)"))
+    ld.add_action(DeclareLaunchArgument(
         "use_sim_time", default_value="false",
         description="Use the /clock topic instead of wall time"))
     ld.add_action(DeclareLaunchArgument(
@@ -54,6 +61,7 @@ def generate_launch_description():
         output="screen",
         parameters=[{
             "frame_id": LaunchConfiguration("frame_id"),
+            "config_file": LaunchConfiguration("config"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
         }],
         remappings=[(default, LaunchConfiguration(name)) for name, default, _ in TOPICS],

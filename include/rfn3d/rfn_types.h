@@ -24,6 +24,11 @@ struct planner_params_t {
   // "faster" (Gurobi MIQP; only available when built with Gurobi).
   std::string solver = "gcopter";
 
+  double plan_rate = 3.0;  // Hz
+
+  bool publish_debug = true;
+  std::string debug_frame = "drone_0/odom";
+
   // receding horizon / trajectory sampling
   double traj_dt = 0.05;          // trajectory sample period (s)
   double max_dist_horizon = 10.0; // upper bound on the receding horizon (m)
@@ -32,6 +37,11 @@ struct planner_params_t {
   // obstacle cloud crop: full box side length around odom (m)
   double cloud_crop = 30.0;
 
+  std::string frontend = "jps";  // "jps" | "rrt"
+
+  bool lock_z = false;  // forces the JPS front-end
+  double z_lock = 1.0;
+
   // RRT* front-end
   double rrt_range = 2.5;
   double robot_radius = 0.25;
@@ -39,17 +49,21 @@ struct planner_params_t {
   Eigen::Vector3d bounds_min = Eigen::Vector3d(-100, -100, -5);
   Eigen::Vector3d bounds_max = Eigen::Vector3d(100, 100, 100);
 
+  // JPS can't leave the map, so this is its room to route around obstacles at the sensor's edge.
+  double map_padding = 1.0;  // m
+
   // safe flight corridor (sfc_gen::convexCover)
   double corridor_progress = 7.0;
   double corridor_range = 5.0;
 
+  double v_max = 3.0;
+  double a_max = 5.0;
+  double j_max = 5.0;  // FASTER only: gcopter has no jerk limit
+  double w_max = 3.0;
+
   // FASTER Gurobi solver
   int n_segments = 6;
   double solver_dc = 0.05;
-  double v_max = 3.0;
-  double a_max = 5.0;
-  double j_max = 5.0;
-  double w_max = 3.0;
   bool force_final_constraint = true;
   double factor_init = 1.0;
   double factor_final = 10.0;
@@ -66,6 +80,7 @@ enum class Status {
   SUCCESS = 0,
   EMPTY_CLOUD,
   RRT_FAILED,
+  JPS_FAILED,
   CORRIDOR_FAILED,
   CORRIDOR_NO_OVERLAP,
   SOLVER_FAILED,
@@ -79,6 +94,8 @@ constexpr std::string_view to_string(Status status) {
     return "Empty Pointcloud";
   case Status::RRT_FAILED:
     return "RRT failure";
+  case Status::JPS_FAILED:
+    return "JPS failure";
   case Status::CORRIDOR_FAILED:
     return "Corridor generation failed";
   case Status::CORRIDOR_NO_OVERLAP:

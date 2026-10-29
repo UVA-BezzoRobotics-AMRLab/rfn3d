@@ -7,13 +7,69 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
+#include <iomanip>
+#include <sstream>
+#include <string>
 
 namespace {
+
+// gcopter's limits are penalties; good solutions overshoot v_max by up to ~4%.
+constexpr double kLimitSlack = 1.1;
 
 bool ends_with(const std::string& s, const std::string& suffix) {
   return s.size() >= suffix.size() &&
          s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+struct Peak {
+  double value = 0.;
+  double t     = 0.;
+
+  void update(double x, double at) {
+    if (x > value) {
+      value = x;
+      t     = at;
+    }
+  }
+};
+
+struct TrajPeaks {
+  Peak speed, accel, jerk, body_rate;
+};
+
+// Excludes yaw rate, matching what gcopter bounds with w_max.
+double bodyRate(const rfn_state_t& s) {
+  const Eigen::Vector3d thrust = s.accel + Eigen::Vector3d(0., 0., 9.81);
+  const Eigen::Vector3d z_body = thrust.normalized();
+  return (s.jerk - z_body.dot(s.jerk) * z_body).norm() / thrust.norm();
+}
+
+TrajPeaks trajPeaks(const std::vector<rfn_state_t>& traj) {
+  TrajPeaks p;
+  for (const auto& s : traj) {
+    p.speed.update(s.vel.norm(), s.t);
+    p.accel.update(s.accel.norm(), s.t);
+    p.jerk.update(s.jerk.norm(), s.t);
+    p.body_rate.update(bodyRate(s), s.t);
+  }
+  return p;
+}
+
+bool exceedsLimits(const TrajPeaks& p, const planner_params_t& params) {
+  return p.speed.value > kLimitSlack * params.v_max ||
+         p.accel.value > kLimitSlack * params.a_max ||
+         p.body_rate.value > kLimitSlack * params.w_max;
+}
+
+std::string describePeaks(const TrajPeaks& p, const planner_params_t& params) {
+  std::ostringstream s;
+  s << std::fixed << std::setprecision(2) << "|v| " << p.speed.value << "/"
+    << params.v_max << " m/s (t " << p.speed.t << "), |a| " << p.accel.value
+    << "/" << params.a_max << " m/s^2 (t " << p.accel.t << "), body rate "
+    << p.body_rate.value << "/" << params.w_max << " rad/s (t "
+    << p.body_rate.t << "), |j| " << p.jerk.value << " m/s^3 (t " << p.jerk.t
+    << ", unbounded in gcopter)";
+  return s.str();
 }
 
 }  // namespace
@@ -23,11 +79,26 @@ PlannerZmq::PlannerZmq()
       state_sub_(ctx_, zmq::socket_type::sub),
       cloud_sub_(ctx_, zmq::socket_type::sub),
       goal_sub_(ctx_, zmq::socket_type::sub),
-      traj_pub_(ctx_, zmq::socket_type::pub) {
+      traj_pub_(ctx_, "/rfn3d/cmd_trajectory", blackbox::Publisher::Framing::Payload) {
   core_.set_params(params_);
   traj_dt_          = params_.traj_dt;
   max_dist_horizon_ = params_.max_dist_horizon;
   failsafe_count_   = params_.failsafe_count;
+}
+
+void PlannerZmq::setParams(const planner_params_t& params) {
+  params_ = params;
+  debug_ = PlannerDebug(params_.debug_frame);
+  core_.set_params(params_);
+  traj_dt_          = params_.traj_dt;
+  max_dist_horizon_ = params_.max_dist_horizon;
+  failsafe_count_   = params_.failsafe_count;
+  std::ostringstream summary;
+  summary << "plan rate " << params_.plan_rate << " Hz, front-end " << params_.frontend;
+  if (params_.lock_z) {
+    summary << ", altitude locked to z = " << params_.z_lock;
+  }
+  BLACKBOX_INFO << summary.str();
 }
 
 PlannerZmq::~PlannerZmq() {
@@ -107,8 +178,7 @@ void PlannerZmq::stateLoop() {
 
       if (!odom_init_.load()) {
         odom_init_ = true;
-        std::cout << "[planner_zmq] odom received: " << odom_.transpose()
-                  << '\n';
+        BLACKBOX_INFO << "odom received: " << odom_.transpose();
       }
     } else if (ends_with(topic, "/tf") || ends_with(topic, "/tf_static")) {
       volasim_msgs::TFMessage tf_msg;
@@ -179,8 +249,7 @@ void PlannerZmq::cloudLoop() {
     if (!cloud_init_.load()) {
       cloud_init_ = true;
       std::lock_guard<std::mutex> lock(cloud_mtx_);
-      std::cout << "[planner_zmq] cloud received (" << cloud_.size()
-                << " points)\n";
+      BLACKBOX_INFO << "cloud received (" << cloud_.size() << " points)";
     }
   }
 }
@@ -222,6 +291,10 @@ void PlannerZmq::goalLoop() {
 
     const auto* data = static_cast<const double*>(msg.data());
     Eigen::Vector3d goal(data[0], data[1], data[2]);
+    // Keep the goal on the locked plane so the goal-reached check can fire.
+    if (params_.lock_z) {
+      goal.z() = params_.z_lock;
+    }
 
     {
       std::lock_guard<std::mutex> lock(goal_mtx_);
@@ -229,12 +302,13 @@ void PlannerZmq::goalLoop() {
     }
     goal_set_ = true;
     has_planned_ = false;
-    std::cout << "[planner_zmq] goal set: " << goal.transpose() << '\n';
+    BLACKBOX_INFO << "goal set: " << goal.transpose();
   }
 }
 
 void PlannerZmq::planLoop() {
-  constexpr auto plan_period = std::chrono::milliseconds(500);
+  const auto plan_period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      std::chrono::duration<double>(1.0 / params_.plan_rate));
   auto next = std::chrono::steady_clock::now();
 
   while (running_.load()) {
@@ -271,6 +345,9 @@ void PlannerZmq::planLoop() {
 
     bool is_failsafe = (count_ >= failsafe_count_);
 
+    // The splice must reuse this: a second clock read can land one sample later and repeat it.
+    double plan_now_t = 0.;
+
     // Build initial PVAJ state.
     Eigen::Matrix<double, 3, 4> initialPVAJ;
 
@@ -280,10 +357,10 @@ void PlannerZmq::planLoop() {
       initialPVAJ.col(2).setZero();
       initialPVAJ.col(3).setZero();
     } else {
-      double now_t = std::chrono::duration<double>(
-                         std::chrono::steady_clock::now() - start_)
-                         .count();
-      double t = now_t + lookahead_;
+      plan_now_t = std::chrono::duration<double>(
+                       std::chrono::steady_clock::now() - start_)
+                       .count();
+      double t = plan_now_t + lookahead_;
       int ind = std::min(static_cast<int>(t / traj_dt_),
                          static_cast<int>(sent_traj_.size()) - 1);
 
@@ -305,10 +382,39 @@ void PlannerZmq::planLoop() {
       cloud = cloud_;
     }
 
+    const auto plan_t0 = std::chrono::steady_clock::now();
     auto status = core_.plan(initialPVAJ, goal, cloud, curr_horizon_);
+
+    plan_context_t ctx;
+    ctx.status      = status;
+    ctx.initialPVAJ = initialPVAJ;
+    ctx.horizon     = curr_horizon_;
+    ctx.failsafe    = is_failsafe;
+    ctx.fail_count  = count_;
+    ctx.total_ms    = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - plan_t0).count();
+
+    std::vector<rfn_state_t> new_traj;
+    TrajPeaks                peaks;
+    std::string              failure;
     if (status != plan_metadata::Status::SUCCESS) {
-      std::cerr << "[planner_zmq] plan failed: "
-                << plan_metadata::to_string(status) << '\n';
+      failure = plan_metadata::to_string(status);
+    } else {
+      new_traj = core_.get_trajectory();
+      if (new_traj.empty()) {
+        continue;
+      }
+      peaks = trajPeaks(new_traj);
+      if (exceedsLimits(peaks, params_)) {
+        failure = "new segment exceeds limits: " + describePeaks(peaks, params_);
+      }
+    }
+
+    if (!failure.empty()) {
+      BLACKBOX_WARN << "plan failed: " << failure;
+      if (params_.publish_debug) {
+        debug_.publish(core_, params_, ctx, goal, cloud, sent_traj_);
+      }
       count_++;
       if (count_ >= failsafe_count_) {
         curr_horizon_ *= 0.9;
@@ -316,16 +422,11 @@ void PlannerZmq::planLoop() {
       continue;
     }
 
-    std::vector<rfn_state_t> new_traj = core_.get_trajectory();
-
     // Splice onto committed trajectory (same logic as ROS wrappers).
     if (!sent_traj_.empty()) {
-      double now_t = std::chrono::duration<double>(
-                         std::chrono::steady_clock::now() - start_)
-                         .count();
-      double t2 = now_t + lookahead_;
+      double t2 = plan_now_t + lookahead_;
 
-      int start_ind = std::min(static_cast<int>(now_t / traj_dt_),
+      int start_ind = std::min(static_cast<int>(plan_now_t / traj_dt_),
                                static_cast<int>(sent_traj_.size()) - 1) + 1;
       int traj_ind = std::min(static_cast<int>(t2 / traj_dt_),
                               static_cast<int>(sent_traj_.size()) - 1);
@@ -363,6 +464,9 @@ void PlannerZmq::planLoop() {
 
     start_ = std::chrono::steady_clock::now();
     publishTrajectory(sent_traj_);
+    if (params_.publish_debug) {
+      debug_.publish(core_, params_, ctx, goal, cloud, sent_traj_);
+    }
 
     count_ = 0;
     curr_horizon_ /= 0.9;
@@ -370,12 +474,12 @@ void PlannerZmq::planLoop() {
       curr_horizon_ = max_dist_horizon_;
     }
 
-    std::cout << "[planner_zmq] trajectory published ("
-              << sent_traj_.size() << " points)\n";
+    BLACKBOX_DEBUG << "trajectory published (" << sent_traj_.size()
+                  << " points), new segment peaks: " << describePeaks(peaks, params_);
 
     if (plan_once_) {
       has_planned_ = true;
-      std::cout << "[planner_zmq] --once: planned for current goal, waiting for next goal.\n";
+      BLACKBOX_INFO << "--once: planned for current goal, waiting for next goal.";
     }
   }
 }
@@ -421,9 +525,7 @@ void PlannerZmq::publishTrajectory(const std::vector<rfn_state_t>& traj) {
     pt->set_time(s.t);
   }
 
-  std::string bytes;
-  (void)traj_msg.SerializeToString(&bytes);
-  traj_pub_.send(zmq::buffer(bytes), zmq::send_flags::none);
+  traj_pub_.send(traj_msg);
 }
 
 // Yaw follows the velocity tangent, but starts from the current heading and

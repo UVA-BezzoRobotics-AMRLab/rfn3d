@@ -42,12 +42,36 @@ find_package(ompl REQUIRED)
 find_package(octomap REQUIRED)
 find_package(Eigen3 REQUIRED)
 
+include(FetchContent)
+find_package(yaml-cpp QUIET)
+if(NOT TARGET yaml-cpp)
+  message(STATUS "yaml-cpp not found; fetching it")
+  set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+  set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+  set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
+  set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  # yaml-cpp 0.8.0 declares cmake_minimum_required(3.4), which CMake 4 rejects.
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+  FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp
+    GIT_TAG        0.8.0
+  )
+  FetchContent_MakeAvailable(yaml-cpp)
+  unset(CMAKE_POLICY_VERSION_MINIMUM)
+  # The static vendored build links into planner_lib.
+  set_target_properties(yaml-cpp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 ########################
 # ROS-free core library
 ########################
 add_library(planner_lib
   src/planner_core.cpp
   src/ompl_rrt_traj.cpp
+  src/jps3d.cpp
+  src/params_yaml.cpp
   src/gcopter_solver.cpp
 )
 set_target_properties(planner_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -59,6 +83,7 @@ target_include_directories(planner_lib PUBLIC
 target_link_libraries(planner_lib
   ${OMPL_LIBRARIES}
   Eigen3::Eigen
+  yaml-cpp
 )
 
 # FASTER (Gurobi) back-end, only when Gurobi is available.
@@ -128,6 +153,7 @@ elseif(ROS_VERSION EQUAL 2)
   )
   install(TARGETS planner_node DESTINATION lib/${PROJECT_NAME})
   install(DIRECTORY planner_ros2/launch DESTINATION share/${PROJECT_NAME})
+  install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
   install(PROGRAMS planner_ros2/scripts/publish_goal.py
     DESTINATION share/${PROJECT_NAME}/scripts)
 
@@ -138,8 +164,6 @@ elseif(ROS_VERSION EQUAL 2)
 ########################
 else()
   message(STATUS "No ROS found; building ZMQ standalone wrapper")
-
-  include(FetchContent)
 
   find_package(protobuf CONFIG REQUIRED)
 
@@ -174,8 +198,31 @@ else()
   )
   FetchContent_MakeAvailable(volasim_msgs)
 
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../blackbox/CMakeLists.txt)
+    FetchContent_Declare(blackbox SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../blackbox)
+  else()
+    FetchContent_Declare(
+      blackbox
+      GIT_REPOSITORY git@github.com:nocholasrift/blackbox.git
+      GIT_TAG        main
+    )
+  endif()
+  FetchContent_MakeAvailable(blackbox)
+
+  file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)
+  add_library(rfn3d_debug_msgs STATIC proto/rfn3d/PlanStats.proto)
+  target_include_directories(rfn3d_debug_msgs PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/proto)
+  target_link_libraries(rfn3d_debug_msgs PUBLIC protobuf::libprotobuf)
+  protobuf_generate(
+    TARGET rfn3d_debug_msgs
+    LANGUAGE cpp
+    IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
+    PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto
+  )
+
   add_executable(planner_zmq
     planner_zmq/src/planner_zmq.cpp
+    planner_zmq/src/planner_debug.cpp
     planner_zmq/src/planner_zmq_node.cpp
   )
   target_include_directories(planner_zmq PRIVATE
@@ -184,9 +231,13 @@ else()
   target_link_libraries(planner_zmq
     planner_lib
     volasim_msgs
+    rfn3d_debug_msgs
+    blackbox::blackbox
     cppzmq-static
   )
   target_compile_features(planner_zmq PRIVATE cxx_std_17)
+  target_compile_definitions(planner_zmq PRIVATE
+    RFN3D_DEFAULT_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/config/planner.yaml")
 
   add_executable(send_goal
     planner_zmq/src/send_goal.cpp

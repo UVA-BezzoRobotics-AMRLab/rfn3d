@@ -1,5 +1,6 @@
 #include <rfn3d/gcopter_solver.h>
 
+#include <algorithm>
 #include <cmath>
 
 void GcopterSolver::set_params(const planner_params_t &params)
@@ -15,14 +16,21 @@ bool GcopterSolver::solve(const Eigen::Matrix<double, 3, 4> &start,
     const Eigen::Matrix3d start_pva = start.leftCols<3>();
     const Eigen::Matrix3d end_pva = end.leftCols<3>();
 
-    // Quadrotor physical limits and penalty weights (gcopter convention:
-    // magnitudeBounds = [maxVel, maxBodyRate, maxTilt, minThrust, maxThrust]).
+    constexpr double kGravity = 9.81;
+    constexpr double kUnitMass = 1.0;  // thrust bounds become accelerations
+
+    // gcopter has no acceleration bound, so |a| <= a_max becomes thrust and tilt bounds.
+    const double a_max = _params.a_max;
+    const double max_tilt = std::asin(std::min(a_max / kGravity, 1.0));
+    const double min_thrust = std::max(kGravity - a_max, 0.0);
+    const double max_thrust = kGravity + a_max;
+
     Eigen::VectorXd magnitudeBounds(5);
     Eigen::VectorXd penaltyWeights(5);
     Eigen::VectorXd physicalParams(6);
-    magnitudeBounds << 4.0, 2.1, 1.05, 2.0, 12.0;
+    magnitudeBounds << _params.v_max, _params.w_max, max_tilt, min_thrust, max_thrust;
     penaltyWeights << 1e4, 1e4, 1e4, 1e4, 1e5;
-    physicalParams << 0.61, 9.8, 0.0, 0.0, 0.0, 0.0001;
+    physicalParams << kUnitMass, kGravity, 0.0, 0.0, 0.0, 0.0001;
 
     if (!_solver.setup(20.0, start_pva, end_pva, polys, 1e6, 1e-2, 16,
                        magnitudeBounds, penaltyWeights, physicalParams))
@@ -39,8 +47,13 @@ std::vector<rfn_state_t> GcopterSolver::get_trajectory() const
 {
     std::vector<rfn_state_t> traj;
 
+    // Already at the goal; derivatives of a near-zero-length solution are numerical garbage.
     const double duration = _traj.getTotalDuration();
-    traj.reserve(static_cast<size_t>(duration / _params.traj_dt) + 1);
+    if (duration < _params.traj_dt)
+    {
+        return traj;
+    }
+    traj.reserve(static_cast<size_t>(duration / _params.traj_dt) + 2);
 
     for (double t = 0.0; t < duration; t += _params.traj_dt)
     {
@@ -52,6 +65,12 @@ std::vector<rfn_state_t> GcopterSolver::get_trajectory() const
         s.t = t;
         traj.push_back(s);
     }
+
+    // Trackers hold the last sample, so end on the rest state (exact at any later time).
+    rfn_state_t end;
+    end.pos = _traj.getPos(duration);
+    end.t = traj.back().t + _params.traj_dt;
+    traj.push_back(end);
 
     return traj;
 }
