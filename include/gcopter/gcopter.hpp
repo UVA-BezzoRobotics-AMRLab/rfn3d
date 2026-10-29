@@ -762,7 +762,11 @@ namespace gcopter
             magnitudeBd = magnitudeBounds;
             penaltyWt = penaltyWeights;
             physicalPm = physicalParams;
-            allocSpeed = magnitudeBd(0) * 3.0;
+            // rfn3d: initial time allocation at v_max, not 3 * v_max. Starting
+            // that far over the speed limit, L-BFGS can stall at the initial
+            // guess and still report a finite cost (seen on short, vertical
+            // final segments).
+            allocSpeed = magnitudeBd(0);
 
             getShortestPath(headPVA.col(0), tailPVA.col(0),
                             vPolytopes, smoothEps, shortPath);

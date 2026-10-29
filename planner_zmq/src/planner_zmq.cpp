@@ -7,13 +7,69 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <sstream>
+#include <string>
 
 namespace {
+
+// A limit counts as exceeded only past this factor: gcopter's limits are
+// penalties, and good solutions overshoot v_max by up to about 4%.
+constexpr double kLimitSlack = 1.1;
 
 bool ends_with(const std::string& s, const std::string& suffix) {
   return s.size() >= suffix.size() &&
          s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+// Largest speed, acceleration, jerk and body rate along a trajectory, and
+// when each occurs. Body rate is the tilt rate the trajectory implies (yaw
+// rate ignored), the quantity gcopter bounds with w_max.
+struct TrajPeaks {
+  double v = 0., a = 0., j = 0., w = 0.;
+  double t_v = 0., t_a = 0., t_j = 0., t_w = 0.;
+};
+
+TrajPeaks trajPeaks(const std::vector<rfn_state_t>& traj) {
+  TrajPeaks p;
+  for (const auto& s : traj) {
+    const Eigen::Vector3d thrust = s.accel + Eigen::Vector3d(0., 0., 9.81);
+    const Eigen::Vector3d z      = thrust.normalized();
+    const double w = (s.jerk - z.dot(s.jerk) * z).norm() / thrust.norm();
+    const double v = s.vel.norm(), a = s.accel.norm(), j = s.jerk.norm();
+    if (v > p.v) {
+      p.v   = v;
+      p.t_v = s.t;
+    }
+    if (a > p.a) {
+      p.a   = a;
+      p.t_a = s.t;
+    }
+    if (j > p.j) {
+      p.j   = j;
+      p.t_j = s.t;
+    }
+    if (w > p.w) {
+      p.w   = w;
+      p.t_w = s.t;
+    }
+  }
+  return p;
+}
+
+bool exceedsLimits(const TrajPeaks& p, const planner_params_t& params) {
+  return p.v > kLimitSlack * params.v_max || p.a > kLimitSlack * params.a_max ||
+         p.w > kLimitSlack * params.w_max;
+}
+
+std::string describePeaks(const TrajPeaks& p, const planner_params_t& params) {
+  std::ostringstream s;
+  s << std::fixed << std::setprecision(2) << "|v| " << p.v << "/" << params.v_max
+    << " m/s (t " << p.t_v << "), |a| " << p.a << "/" << params.a_max
+    << " m/s^2 (t " << p.t_a << "), body rate " << p.w << "/" << params.w_max
+    << " rad/s (t " << p.t_w << "), |j| " << p.j << " m/s^3 (t " << p.t_j
+    << "; j_max " << params.j_max << " is not enforced by gcopter)";
+  return s.str();
 }
 
 }  // namespace
@@ -289,6 +345,11 @@ void PlannerZmq::planLoop() {
 
     bool is_failsafe = (count_ >= failsafe_count_);
 
+    // Time into the committed trajectory this cycle plans from. The splice
+    // below must cut at the sample the initial state came from; reading the
+    // clock again there could land one sample later and repeat that sample.
+    double plan_now_t = 0.;
+
     // Build initial PVAJ state.
     Eigen::Matrix<double, 3, 4> initialPVAJ;
 
@@ -298,10 +359,10 @@ void PlannerZmq::planLoop() {
       initialPVAJ.col(2).setZero();
       initialPVAJ.col(3).setZero();
     } else {
-      double now_t = std::chrono::duration<double>(
-                         std::chrono::steady_clock::now() - start_)
-                         .count();
-      double t = now_t + lookahead_;
+      plan_now_t = std::chrono::duration<double>(
+                       std::chrono::steady_clock::now() - start_)
+                       .count();
+      double t = plan_now_t + lookahead_;
       int ind = std::min(static_cast<int>(t / traj_dt_),
                          static_cast<int>(sent_traj_.size()) - 1);
 
@@ -335,8 +396,28 @@ void PlannerZmq::planLoop() {
     ctx.total_ms    = std::chrono::duration<double, std::milli>(
                        std::chrono::steady_clock::now() - plan_t0).count();
 
+    // gcopter can return a solution far outside its limits with a finite cost
+    // (an optimization stalled at its initial guess), so an over-limit
+    // trajectory is handled like a failed plan and never published.
+    std::vector<rfn_state_t> new_traj;
+    TrajPeaks                peaks;
+    std::string              failure;
     if (status != plan_metadata::Status::SUCCESS) {
-      BLACKBOX_WARN << "plan failed: " << plan_metadata::to_string(status);
+      failure = plan_metadata::to_string(status);
+    } else {
+      new_traj = core_.get_trajectory();
+      // Empty when the plan starts at its end; keep the committed trajectory.
+      if (new_traj.empty()) {
+        continue;
+      }
+      peaks = trajPeaks(new_traj);
+      if (exceedsLimits(peaks, params_)) {
+        failure = "new segment exceeds limits: " + describePeaks(peaks, params_);
+      }
+    }
+
+    if (!failure.empty()) {
+      BLACKBOX_WARN << "plan failed: " << failure;
       if (params_.publish_debug) {
         debug_.publish(core_, params_, ctx, goal, cloud, sent_traj_);
       }
@@ -347,13 +428,9 @@ void PlannerZmq::planLoop() {
       continue;
     }
 
-    std::vector<rfn_state_t> new_traj = core_.get_trajectory();
-
     // Splice onto committed trajectory (same logic as ROS wrappers).
     if (!sent_traj_.empty()) {
-      double now_t = std::chrono::duration<double>(
-                         std::chrono::steady_clock::now() - start_)
-                         .count();
+      const double now_t = plan_now_t;
       double t2 = now_t + lookahead_;
 
       int start_ind = std::min(static_cast<int>(now_t / traj_dt_),
@@ -404,7 +481,8 @@ void PlannerZmq::planLoop() {
       curr_horizon_ = max_dist_horizon_;
     }
 
-    BLACKBOX_INFO << "trajectory published (" << sent_traj_.size() << " points)";
+    BLACKBOX_DEBUG << "trajectory published (" << sent_traj_.size()
+                  << " points), new segment peaks: " << describePeaks(peaks, params_);
 
     if (plan_once_) {
       has_planned_ = true;

@@ -66,13 +66,17 @@ struct planner_params_t {
   double corridor_progress = 7.0;
   double corridor_range = 5.0;
 
-  // FASTER Gurobi solver
-  int n_segments = 6;
-  double solver_dc = 0.05;
+  // Dynamic limits. FASTER enforces them per axis as hard constraints.
+  // gcopter penalizes |v| > v_max, body rate > w_max, and thrust/tilt outside
+  // what |a| <= a_max allows; it has no jerk limit, so j_max is FASTER only.
   double v_max = 3.0;
   double a_max = 5.0;
   double j_max = 5.0;
   double w_max = 3.0;
+
+  // FASTER Gurobi solver
+  int n_segments = 6;
+  double solver_dc = 0.05;
   bool force_final_constraint = true;
   double factor_init = 1.0;
   double factor_final = 10.0;

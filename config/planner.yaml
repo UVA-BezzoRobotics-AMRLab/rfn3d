@@ -31,6 +31,8 @@ corridor_range: 5.0
 
 # --- trajectory back-end ---
 solver: gcopter           # gcopter | faster (faster needs Gurobi)
+# limits: faster = hard, per axis; gcopter = penalties on |v|, body rate (w_max)
+# and the thrust/tilt |a| <= a_max allows; gcopter has no jerk limit
 v_max: 0.5
 a_max: 3.0
 j_max: 3.0
